@@ -1,0 +1,2 @@
+{"query": "Calculate 1 + 1 with Python.", "tool_interactions": [{"code": "print(1 + 1)", "sandbox_raw_return": "2\n", "success": true}], "answer": "2"}
+{"query": "Repair division by zero in a ratio calculation.", "tool_interactions": [{"code": "print(10 / 0)", "sandbox_raw_return": "ZeroDivisionError: division by zero", "is_error": true}, {"code": "denominator = 2\nprint(10 / denominator)", "sandbox_raw_return": "5.0\n", "success": true}], "answer": "Check that the denominator is nonzero. With denominator 2, the ratio is 5."}

@@ -1,0 +1,33 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5070",
+  "compute_capability": [
+    12,
+    0
+  ],
+  "total_vram_bytes": 12438863872,
+  "torch": "2.14.0+cu130",
+  "cuda": "13.0",
+  "external_downloads": false,
+  "pytorch_flash_sdpa": true,
+  "int4": {
+    "torch": {
+      "pack_unpack_ms": 0.15024439999251626,
+      "persistent_int4_bytes": 163840,
+      "dense_bf16_bytes": 524288,
+      "max_absolute_error": 0.318359375,
+      "peak_allocated_bytes_including_workspace": 4521984
+    },
+    "triton": {
+      "pack_unpack_ms": 0.0367458000255283,
+      "persistent_int4_bytes": 163840,
+      "dense_bf16_bytes": 524288,
+      "max_absolute_error": 0.318359375,
+      "peak_allocated_bytes_including_workspace": 2392064
+    }
+  },
+  "branch_ms": {
+    "batched_matrix": 0.038456599941127934,
+    "cuda_streams": 0.17398555000909255
+  },
+  "flash_attention_3": "Hopper SM90 only; disabled on SM120"
+}

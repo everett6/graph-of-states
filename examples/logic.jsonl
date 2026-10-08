@@ -1,0 +1,12 @@
+{"prompt":"0 AND 0 =", "answer":"0", "passed":true}
+{"prompt":"0 AND 1 =", "answer":"0", "passed":true}
+{"prompt":"1 AND 0 =", "answer":"0", "passed":true}
+{"prompt":"1 AND 1 =", "answer":"1", "passed":true}
+{"prompt":"0 OR 0 =", "answer":"0", "passed":true}
+{"prompt":"0 OR 1 =", "answer":"1", "passed":true}
+{"prompt":"1 OR 0 =", "answer":"1", "passed":true}
+{"prompt":"1 OR 1 =", "answer":"1", "passed":true}
+{"prompt":"0 XOR 0 =", "answer":"0", "passed":true}
+{"prompt":"0 XOR 1 =", "answer":"1", "passed":true}
+{"prompt":"1 XOR 0 =", "answer":"1", "passed":true}
+{"prompt":"1 XOR 1 =", "answer":"0", "passed":true}

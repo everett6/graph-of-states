@@ -1,0 +1,156 @@
+{
+  "full-extensions-verified": {
+    "summary": {
+      "status": "passed",
+      "gpu": "RTX 5070",
+      "model": "locally constructed tiny Gemma4, NF4",
+      "external_data_downloaded": false,
+      "external_weights_downloaded": false,
+      "stages": [
+        "sft",
+        "grpo",
+        "test"
+      ],
+      "features": [
+        "holographic scratchpad",
+        "thermal looping",
+        "recurrent latent compaction",
+        "h2o generation",
+        "int4 Triton KV cache",
+        "matrix branches",
+        "dual friction",
+        "coherence and tool gate parameters"
+      ]
+    },
+    "metrics": {
+      "sft": {
+        "eval_loss": 3.531879425048828,
+        "eval_runtime": 0.1085,
+        "eval_samples_per_second": 36.85,
+        "eval_steps_per_second": 36.85,
+        "epoch": 1.0,
+        "peak_allocated_bytes": 168358912,
+        "peak_reserved_bytes": 176160768
+      },
+      "grpo": {
+        "eval_loss": 0.0693359375,
+        "eval_runtime": 1.1075,
+        "eval_samples_per_second": 3.612,
+        "eval_steps_per_second": 1.806,
+        "eval_num_tokens": 25.0,
+        "eval_completions/mean_length": 8.0,
+        "eval_completions/min_length": 8.0,
+        "eval_completions/max_length": 8.0,
+        "eval_completions/clipped_ratio": 1.0,
+        "eval_completions/mean_terminated_length": 0.0,
+        "eval_completions/min_terminated_length": 0.0,
+        "eval_completions/max_terminated_length": 0.0,
+        "eval_rewards/verified_reward/mean": 0.0,
+        "eval_rewards/verified_reward/std": 0.0,
+        "eval_reward": 0.0,
+        "eval_reward_std": 0.0,
+        "eval_frac_reward_zero_std": 1.0,
+        "eval_entropy": 3.4605502486228943,
+        "eval_clip_ratio/low_mean": 0.0,
+        "eval_clip_ratio/high_mean": 0.0,
+        "eval_clip_ratio/region_mean": 0.0,
+        "eval_clip_ratio/low_min": 0.0,
+        "eval_clip_ratio/high_max": 0.0,
+        "epoch": 1.0,
+        "peak_allocated_bytes": 269194752,
+        "peak_reserved_bytes": 276824064
+      },
+      "test": {
+        "eval_loss": 3.531879425048828,
+        "eval_model_preparation_time": 0.001,
+        "eval_runtime": 0.0394,
+        "eval_samples_per_second": 101.603,
+        "eval_steps_per_second": 101.603,
+        "epoch": 0,
+        "test_generated_examples": 4,
+        "test_mean_reward": 0.0,
+        "test_reward_function": "train_unified:exact_answer_reward",
+        "test_cache_policy": "h2o",
+        "peak_allocated_bytes": 369846784,
+        "peak_reserved_bytes": 383778816
+      }
+    }
+  },
+  "deepspeed-integration-verified": {
+    "summary": {
+      "status": "passed",
+      "gpu": "RTX 5070",
+      "model": "locally constructed tiny Gemma4, NF4",
+      "external_data_downloaded": false,
+      "external_weights_downloaded": false,
+      "stages": [
+        "sft",
+        "grpo",
+        "test"
+      ],
+      "features": [
+        "holographic scratchpad",
+        "thermal looping",
+        "recurrent latent compaction",
+        "h2o generation",
+        "int4 Triton KV cache",
+        "matrix branches",
+        "dual friction",
+        "coherence and tool gate parameters"
+      ]
+    },
+    "metrics": {
+      "sft": {
+        "eval_loss": 3.444153308868408,
+        "eval_runtime": 0.1071,
+        "eval_samples_per_second": 37.357,
+        "eval_steps_per_second": 37.357,
+        "epoch": 1.0,
+        "peak_allocated_bytes": 168358912,
+        "peak_reserved_bytes": 176160768
+      },
+      "grpo": {
+        "eval_loss": 0.0693359375,
+        "eval_runtime": 1.1299,
+        "eval_samples_per_second": 3.54,
+        "eval_steps_per_second": 1.77,
+        "eval_num_tokens": 25.0,
+        "eval_completions/mean_length": 8.0,
+        "eval_completions/min_length": 8.0,
+        "eval_completions/max_length": 8.0,
+        "eval_completions/clipped_ratio": 1.0,
+        "eval_completions/mean_terminated_length": 0.0,
+        "eval_completions/min_terminated_length": 0.0,
+        "eval_completions/max_terminated_length": 0.0,
+        "eval_rewards/verified_reward/mean": 0.0,
+        "eval_rewards/verified_reward/std": 0.0,
+        "eval_reward": 0.0,
+        "eval_reward_std": 0.0,
+        "eval_frac_reward_zero_std": 1.0,
+        "eval_entropy": 3.459471583366394,
+        "eval_clip_ratio/low_mean": 0.0,
+        "eval_clip_ratio/high_mean": 0.0,
+        "eval_clip_ratio/region_mean": 0.0,
+        "eval_clip_ratio/low_min": 0.0,
+        "eval_clip_ratio/high_max": 0.0,
+        "epoch": 1.0,
+        "peak_allocated_bytes": 269194752,
+        "peak_reserved_bytes": 278921216
+      },
+      "test": {
+        "eval_loss": 3.444153308868408,
+        "eval_model_preparation_time": 0.0009,
+        "eval_runtime": 0.0399,
+        "eval_samples_per_second": 100.246,
+        "eval_steps_per_second": 100.246,
+        "epoch": 0,
+        "test_generated_examples": 4,
+        "test_mean_reward": 0.0,
+        "test_reward_function": "train_unified:exact_answer_reward",
+        "test_cache_policy": "h2o",
+        "peak_allocated_bytes": 369846784,
+        "peak_reserved_bytes": 383778816
+      }
+    }
+  }
+}
