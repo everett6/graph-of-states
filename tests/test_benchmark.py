@@ -164,3 +164,19 @@ def test_local_verified_benchmark_suite_and_manifest(tmp_path):
     assert audit['cross_split_pairs']==0
     row['answer']='3';path.write_text(json.dumps(row)+'\n')
     with pytest.raises(ValueError):make_dataset(config,tokenizer())
+
+
+def test_independent_auditor_detects_corrupted_partition():
+    from scripts.audit_benchmark_manifest import audit
+    rows=[{'prompt':'same task','source':'x','trace_id':'1','split':'train'},
+          {'prompt':'same task','source':'x','trace_id':'1','split':'test'}]
+    report=audit(rows)
+    assert report['cross_partition_pairs']==1 and report['leaks'][0]['same_trace']
+    rows[1]['split']='train';assert audit(rows)['cross_partition_pairs']==0
+
+
+def test_json_overflow_is_not_a_verified_value():
+    from verified_rewards import strict_json
+    with pytest.raises(ValueError):strict_json('{"value":1e999}')
+    with pytest.raises(ValueError):strict_json('{"value":-1e999}')
+    assert not verify('{"value":1e999}',{'kind':'structured','expected':{'value':float('inf')}}).correct

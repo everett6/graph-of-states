@@ -131,7 +131,11 @@ def strict_json(text):
             if key in result: raise ValueError('Duplicate JSON key')
             result[key]=value
         return result
-    return json.loads(text,object_pairs_hook=pairs,parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Nonfinite JSON')))
+    def finite_float(text):
+        value=float(text)
+        if not math.isfinite(value): raise ValueError('Nonfinite JSON number')
+        return value
+    return json.loads(text,object_pairs_hook=pairs,parse_float=finite_float,parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Nonfinite JSON')))
 
 
 def structured_reward(completion, expected, schema=None):
