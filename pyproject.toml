@@ -14,17 +14,20 @@ lrr-train = "train_lrr:main"
 gos-unified = "train_unified:main"
 gos-generate = "generate_gos:main"
 gos-diagnose = "diagnose_gos:main"
+gos-benchmark = "benchmark_gos:main"
+gos-gguf-generate = "generate_gguf_adapter:main"
 
 [project.optional-dependencies]
 backbone = ["transformers>=4.56,<6", "accelerate>=1.0", "safetensors>=0.4"]
 quantization = ["bitsandbytes>=0.48"]
 test = ["pytest>=8"]
+benchmark = ["gguf>=0.17", "jsonschema>=4.20", "numpy>=1.26"]
 deepspeed = ["deepspeed==0.19.7"]
 kernels = ["triton>=3.5,<4"]
 unified = ["transformers==5.17.0", "peft==0.20.0", "trl==1.14.2", "accelerate==1.15.0", "datasets==5.1.0", "bitsandbytes==0.50.2", "safetensors>=0.4"]
 
 [tool.setuptools]
-py-modules = ["gos_engine_architecture", "lrr_data", "train_lrr", "gos_gemma", "unified_data", "train_unified", "docker_code_reward", "gos_memory", "gos_h2o", "generate_gos", "gos_int4", "gos_kernels", "gos_cognition", "gos_runtime", "gos_tools", "diagnose_gos"]
+py-modules = ["gos_engine_architecture", "lrr_data", "train_lrr", "gos_gemma", "unified_data", "train_unified", "docker_code_reward", "gos_memory", "gos_h2o", "generate_gos", "gos_int4", "gos_kernels", "gos_cognition", "gos_runtime", "gos_tools", "diagnose_gos", "local_gemma", "verified_rewards", "split_audit", "rollout_cache", "experiment_support", "benchmark_gos", "cache_quality", "generate_gguf_adapter"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

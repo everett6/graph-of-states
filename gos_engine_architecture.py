@@ -58,7 +58,7 @@ class EvidenceGraphTransition(nn.Module):
         self.gate = nn.Linear(3*d, d)
         self.norm = nn.LayerNorm(d)
 
-    def forward(self, state, evidence, mask, temperature=1.0, operational_logits=None, return_components=False):
+    def forward(self, state, evidence, mask, temperature=1.0, operational_logits=None, return_components=False, edge_routing=True, auxiliary_critics=True):
         d = state.shape[-1]
         attention = self.query(state) @ self.key(evidence).transpose(-1, -2) / math.sqrt(d)
         attention = attention / temperature
@@ -74,6 +74,9 @@ class EvidenceGraphTransition(nn.Module):
         delta_difference = displacement[:, :, None, :] - displacement[:, None, :, :]
         compatibility = self.edge(torch.cat((destination, source, delta_difference), -1)).squeeze(-1)
         risk_logits = self.risk(torch.cat((candidate, anchor), -1)).squeeze(-1)
+        if not auxiliary_critics:
+            risk_logits = torch.zeros_like(risk_logits)
+            operational_logits = None
         semantic_logits = risk_logits
         if operational_logits is not None:
             # P(any failure) = 1 - P(no semantic failure)*P(no operational failure).
@@ -85,6 +88,8 @@ class EvidenceGraphTransition(nn.Module):
         # teaching the critic to claim low risk. Critic learns from outcome labels.
         reliability = F.logsigmoid(-risk_logits.detach())
         routes = ((compatibility + reliability[:, None, :]) / temperature).softmax(-1)
+        if not edge_routing:
+            routes = torch.eye(n, device=state.device, dtype=state.dtype)[None].expand(state.shape[0], -1, -1)
         message = routes @ candidate
         gate = torch.sigmoid(self.gate(torch.cat((candidate, message, anchor), -1)))
         next_state = self.norm(candidate + gate * (message - candidate))

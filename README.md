@@ -168,3 +168,7 @@ conditioning, a one-round graph, and the recursive graph on held-out tasks.
 Ablate displacement-based edges and variance fusion. Report multiple seeds,
 latency, verified answer success, and measured memory with comparable budgets.
 No fixed percentage memory savings or 12 GB capacity guarantee is assumed.
+
+## Controlled experiments
+
+The offline four-baseline harness, verified task rewards, leakage audit, cache profiles, ablations, recovery tests and custom GGUF loader are documented in [docs/CONTROLLED_BENCHMARKS.md](docs/CONTROLLED_BENCHMARKS.md). The trained pilot is a functional check, not evidence of reasoning improvements.

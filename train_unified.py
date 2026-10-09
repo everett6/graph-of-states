@@ -36,6 +36,9 @@ class UnifiedConfig:
     graph_nodes: int = 4
     graph_rounds: int = 4
     graph_enhancements: dict = field(default_factory=dict)
+    grpo_use_cache: bool = False
+    grpo_feature_cache_entries: int = 0
+    grpo_feature_cache_bytes: int = 67108864
     inference_cache: str = 'none'
     kv_quantization: str = 'none'
     kv_kernel: str = 'torch'
@@ -87,6 +90,8 @@ class UnifiedConfig:
         if len({source['name'] for source in self.sources}) != len(self.sources):
             raise ValueError('Source names must be unique')
         validate_enhancements(self.graph_enhancements, self.graph_rounds)
+        if type(self.grpo_use_cache) is not bool or type(self.grpo_feature_cache_entries) is not int or type(self.grpo_feature_cache_bytes) is not int or self.grpo_feature_cache_entries < 0 or self.grpo_feature_cache_bytes < 1:
+            raise ValueError('Invalid GRPO cache limits')
         if self.inference_cache not in ('none', 'h2o', 'sliding'):
             raise ValueError('inference_cache must be none, h2o or sliding')
         from gos_h2o import H2OConfig
@@ -104,12 +109,12 @@ class UnifiedConfig:
 
 def validate_enhancements(options, rounds):
     defaults = dict(scratchpad=False, latent_slots=0, thermal=False, min_rounds=2,
-        cross_modal=False, branches=False, async_branches=False, dual_friction=False, tool_gate=False,
+        cross_modal=False, branches=False, async_branches=False, dual_friction=False, tool_gate=False, edge_routing=True, auxiliary_critics=True,
         temperature=1.0, temperature_floor=0.5, entropy_tolerance=0.01, motion_tolerance=0.01)
     if not isinstance(options, dict) or set(options) - set(defaults):
         raise ValueError('Unknown graph_enhancements setting')
     settings = defaults | options
-    if any(type(settings[key]) is not bool for key in ('scratchpad', 'thermal', 'cross_modal', 'branches', 'async_branches', 'dual_friction', 'tool_gate')):
+    if any(type(settings[key]) is not bool for key in ('scratchpad', 'thermal', 'cross_modal', 'branches', 'async_branches', 'dual_friction', 'tool_gate', 'edge_routing', 'auxiliary_critics')):
         raise ValueError('Feature switches must be booleans')
     if settings['async_branches'] and not settings['branches']:
         raise ValueError('async_branches requires branches')
@@ -183,7 +188,7 @@ class GoSSFTTrainer(AdapterSaveMixin, SFTTrainer):
             modal_states=aligned, modal_mask=aligned_mask, checkpoint_backend=config.checkpoint_backend)
         loss = -logps.mean()
         friction = inputs.get('friction_targets')
-        if friction is not None and friction.ge(0).any():
+        if config.graph_enhancements.get('auxiliary_critics', True) and friction is not None and friction.ge(0).any():
             known = friction.ge(0)
             head = inner_lm(model).get_output_embeddings()
             # Few explicit outcome positions, so this auxiliary graph is small.
@@ -229,6 +234,8 @@ class GoSGRPOTrainer(AdapterSaveMixin, GRPOTrainer):
     def _compute_loss(self, model, inputs):
         policy_loss = super()._compute_loss(model, inputs)
         head = inner_lm(model).get_output_embeddings()
+        if not self.gos_config.graph_enhancements.get('auxiliary_critics', True):
+            return policy_loss
         risk = head.risk_logits(self._risk_summary_features, stream='semantic')
         auxiliary = F.binary_cross_entropy_with_logits(risk, inputs['verified_failures'].to(risk))
         normalizer = self.current_gradient_accumulation_steps if model.training else 1.0
@@ -243,7 +250,14 @@ class GoSGRPOTrainer(AdapterSaveMixin, GRPOTrainer):
         # Always score one completion at a time, even when TRL holds a group.
         for start in range(input_ids.shape[0]):
             ids, mask = input_ids[start:start+1], attention_mask[start:start+1]
-            hidden = frozen_features(model, ids, mask, self.gos_config.max_seq_length)
+            if self.gos_config.grpo_feature_cache_entries:
+                from rollout_cache import FrozenFeatureCache
+                if not hasattr(self, '_frozen_feature_cache'):
+                    self._frozen_feature_cache = FrozenFeatureCache(self.gos_config.grpo_feature_cache_entries,
+                        self.gos_config.grpo_feature_cache_bytes)
+                hidden = self._frozen_feature_cache.get(model, ids, mask, self.gos_config.max_seq_length)
+            else:
+                hidden = frozen_features(model, ids, mask, self.gos_config.max_seq_length)
             last = (torch.arange(ids.shape[1], device=ids.device) * mask[0]).max()
             summaries.append(hidden[:, last])
             features = hidden[:, :-1][:, -logits_to_keep:]
@@ -258,7 +272,7 @@ class GoSGRPOTrainer(AdapterSaveMixin, GRPOTrainer):
 
 @torch.no_grad()
 def sequential_rollout(prompts, trainer):
-    """TRL supplies repeated group prompts; generate serially without a KV cache."""
+    """TRL supplies repeated group prompts; exact native cache is opt-in."""
     config = trainer.gos_config
     model = trainer.accelerator.unwrap_model(trainer.model)
     tokenizer = trainer.processing_class
@@ -272,7 +286,7 @@ def sequential_rollout(prompts, trainer):
         inputs = torch.tensor([ids], device=trainer.accelerator.device)
         mask = torch.ones_like(inputs)
         with trainer.accelerator.autocast():
-            generated = model.generate(input_ids=inputs, attention_mask=mask, use_cache=False,
+            generated = model.generate(input_ids=inputs, attention_mask=mask, use_cache=config.grpo_use_cache,
                 max_new_tokens=config.max_completion_tokens, do_sample=True,
                 temperature=trainer.temperature, top_k=0, top_p=1.0,
                 pad_token_id=tokenizer.pad_token_id,
@@ -375,7 +389,8 @@ def generated_test_metrics(trainer, config, tokenizer, allow_remote_data):
                     logits_to_keep=1, pad_token_id=tokenizer.pad_token_id)
         completion = tokenizer.decode(outputs[0, len(ids):], skip_special_tokens=True)
         reward = verifier(completions=[completion], answer=[example['answer']],
-                          tests=[example.get('tests')], prompts=[example['prompt']])[0]
+                          tests=[example.get('tests')], prompts=[example['prompt']],
+                          **({'task_spec':[example['task_spec']]} if 'task_spec' in example else {}))[0]
         predictions.append({**example, 'completion': completion, 'verified_reward': reward, 'cache_stats': cache_stats})
     path = Path(config.output_dir) / 'test-predictions.jsonl'
     path.write_text(''.join(json.dumps(example, ensure_ascii=False) + '\n' for example in predictions))

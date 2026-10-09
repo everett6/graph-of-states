@@ -273,7 +273,7 @@ def mixed_examples(sources, tokenizer, split, seed=17, mode='sft', max_seq_lengt
                     prepared = grpo_examples(messages, tokenizer, prompt_limit)
                 for example in prepared:
                     yield {**example, 'task_key': key, 'source': source['name'],
-                           'tests': row.get('tests')}
+                           'tests': row.get('tests'), **({'task_spec':row['task_spec']} if 'task_spec' in row else {})}
             except (ValueError, TypeError, KeyError) as error:
                 stats['rejected'] += 1
                 # A missing template is configuration failure, not bad data.

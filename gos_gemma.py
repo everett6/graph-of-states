@@ -75,7 +75,8 @@ class _TokenGraphBody(nn.Module):
             operational = self.operational(torch.cat((branch_state, anchor[:, None].expand_as(state)), -1)).squeeze(-1) if self.operational is not None else None
             proposal, proposed_risk, routes, semantic = self.transition(branch_state, evidence, mask,
                 temperature=temperature[:, None, None] if options.get('thermal', False) else 1.0,
-                operational_logits=operational, return_components=True)
+                operational_logits=operational, return_components=True,
+                edge_routing=options.get('edge_routing', True), auxiliary_critics=options.get('auxiliary_critics', True))
             semantic_risk = torch.where(active[:, None], semantic, semantic_risk)
             if operational is not None:
                 operational_risk = torch.where(active[:, None], operational, operational_risk)
