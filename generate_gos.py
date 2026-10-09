@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 
-from gos_gemma import load_gos_adapter
+from gos_gemma import load_gos_adapter, add_reasoning_arguments, apply_reasoning_arguments
 from gos_h2o import h2o_generate
 from train_unified import UnifiedConfig, load_nf4
 
@@ -25,10 +25,12 @@ def main():
     parser.add_argument('--tool-turns', type=int, default=4)
     parser.add_argument('--tool-threshold', type=float, default=0.85)
     parser.add_argument('--allow-model-download', action='store_true')
+    add_reasoning_arguments(parser)
     args = parser.parse_args()
     config = UnifiedConfig(**json.loads((Path(args.adapter) / 'gos_config.json').read_text())).validate()
     base, tokenizer = load_nf4(config, args.allow_model_download)
     model = load_gos_adapter(base, args.adapter).eval()
+    apply_reasoning_arguments(model, args)
     if args.tools:
         from gos_tools import gated_tool_turns
         from gos_gemma import frozen_features, inner_lm

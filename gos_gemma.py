@@ -50,6 +50,8 @@ class _TokenGraphBody(nn.Module):
                 raise ValueError('Provide a causal aligned modal_mask')
             modalities = self.project(modal_states.to(anchor.dtype))
             anchor, coherence_loss = self.coherence(anchor, modalities, modal_mask.bool())
+        if self.enhancements.get('adaptive', False):
+            return self._adaptive_forward(anchor, diagnostics, coherence_loss, allow_async)
         state = anchor[:, None] + self.transition.roles[None]
         options = self.enhancements
         scratch = torch.zeros_like(anchor)
@@ -107,6 +109,135 @@ class _TokenGraphBody(nn.Module):
                 'coherence_loss': coherence_loss,
                 'tool_logits': self.actuator(features).squeeze(-1) if self.actuator is not None else None}
         return features, risk.mean(-1)
+
+
+    def _adaptive_forward(self, anchor, diagnostics, coherence_loss, allow_async):
+        """Run shared weights only for still-active causal token states.
+
+        Stopping is a convergence heuristic, not a correctness prediction.
+        No mutable history or learned parameters are added to old checkpoints.
+        """
+        options = self.enhancements
+        minimum = options.get('min_rounds', 2)
+        patience = options.get('halting_patience', 2)
+        if type(self.rounds) is not int or type(minimum) is not int or not 1 <= minimum <= self.rounds:
+            raise ValueError('Adaptive passes require 1 <= min_rounds <= rounds')
+        if type(patience) is not int or patience < 1:
+            raise ValueError('halting_patience must be a positive integer')
+        state = anchor[:, None] + self.transition.roles[None]
+        scratch = torch.zeros_like(anchor)
+        memory = anchor[:, None].expand(-1, options.get('latent_slots', 0), -1).clone()
+        entropy = anchor.new_ones(len(anchor))
+        temperature = anchor.new_full((len(anchor),), options.get('temperature', 1.0))
+        risk = state.new_zeros(state.shape[:2])
+        semantic_risk, operational_risk = risk, risk
+        steps = torch.zeros(len(anchor), dtype=torch.long, device=anchor.device)
+        streak = torch.zeros_like(steps)
+        converged = torch.zeros(len(anchor), dtype=torch.bool, device=anchor.device)
+        indices = torch.arange(len(anchor), device=anchor.device)
+        for _ in range(self.rounds):
+            if indices.numel() == 0:
+                break
+            previous = state.index_select(0, indices)
+            current_anchor = anchor.index_select(0, indices)
+            evidence = current_anchor[:, None]
+            if self.scratchpad is not None:
+                evidence = torch.cat((evidence, self.scratchpad.read(scratch[indices]) * self.memory_gate.sigmoid()), 1)
+            if self.compactor is not None:
+                evidence = torch.cat((evidence, memory[indices] * self.memory_gate.sigmoid()), 1)
+            branch = previous
+            if self.branches is not None:
+                branch = branch + 0.1 * self.branches(branch, allow_async=allow_async)
+            operational = self.operational(torch.cat((branch, current_anchor[:, None].expand_as(branch)), -1)).squeeze(-1) if self.operational is not None else None
+            proposal, proposed_risk, routes, semantic = self.transition(branch, evidence,
+                torch.ones(evidence.shape[:2], dtype=torch.bool, device=anchor.device),
+                temperature=temperature[indices, None, None] if options.get('thermal', False) else 1.0,
+                operational_logits=operational, return_components=True,
+                edge_routing=options.get('edge_routing', True),
+                auxiliary_critics=options.get('auxiliary_critics', True))
+            state = state.index_copy(0, indices, proposal)
+            risk = risk.index_copy(0, indices, proposed_risk)
+            semantic_risk = semantic_risk.index_copy(0, indices, semantic)
+            if operational is not None:
+                operational_risk = operational_risk.index_copy(0, indices, operational)
+            if self.scratchpad is not None:
+                scratch = scratch.index_copy(0, indices, self.scratchpad.write(scratch[indices], proposal))
+            if self.compactor is not None:
+                memory = memory.index_copy(0, indices, self.compactor(memory[indices], proposal))
+            next_entropy, change, motion, next_temperature = thermal_statistics(
+                routes, previous, proposal, entropy[indices], options.get('temperature', 1.0),
+                options.get('temperature_floor', 0.5))
+            entropy = entropy.index_copy(0, indices, next_entropy.to(entropy.dtype))
+            temperature = temperature.index_copy(0, indices, next_temperature.to(temperature.dtype))
+            stable = (change <= options.get('entropy_tolerance', 0.01)) & (motion <= options.get('motion_tolerance', 0.05))
+            current_streak = torch.where(stable, streak[indices] + 1, 0)
+            streak = streak.index_copy(0, indices, current_streak)
+            current_steps = steps[indices] + 1
+            steps = steps.index_copy(0, indices, current_steps)
+            done = (current_steps >= minimum) & (current_streak >= patience)
+            converged = converged.index_copy(0, indices, done)
+            indices = indices[~done]
+        features = torch.tanh(self.fuse(torch.cat((state.mean(1), state.var(1, unbiased=False)), -1)))
+        if diagnostics:
+            return features, risk.mean(-1), {'rounds': steps, 'entropy': entropy,
+                'temperature': temperature, 'latent_slots': memory.shape[1],
+                'converged': converged, 'hit_budget': ~converged,
+                'executed_token_passes': steps.sum(),
+                'semantic_risk': semantic_risk.mean(-1), 'operational_risk': operational_risk.mean(-1),
+                'coherence_loss': coherence_loss,
+                'tool_logits': self.actuator(features).squeeze(-1) if self.actuator is not None else None}
+        return features, risk.mean(-1)
+
+
+def set_reasoning_budget(model, minimum=2, maximum=20, adaptive=True, patience=2,
+                         motion_tolerance=0.05, entropy_tolerance=0.01):
+    """Change the runtime pass policy without changing trained weights.
+
+    Save/export with matching graph_rounds/enhancements to persist the policy.
+    Increasing depth beyond training is experimental.
+    """
+    if type(adaptive) is not bool or any(type(v) is not int for v in (minimum, maximum, patience)):
+        raise ValueError('Invalid reasoning policy types')
+    if not 1 <= minimum <= maximum or patience < 1:
+        raise ValueError('Require 1 <= minimum <= maximum and patience >= 1')
+    import math
+    if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (motion_tolerance, entropy_tolerance)):
+        raise ValueError('Convergence tolerances must be finite and positive')
+    graphs = [module for module in model.modules() if isinstance(module, TokenGraph)]
+    if not graphs:
+        raise ValueError('Model has no GoS reasoning layer')
+    for graph in graphs:
+        graph._body.rounds = maximum
+        # Copy because caller configs may be reused elsewhere.
+        graph._body.enhancements = dict(graph._body.enhancements,
+            adaptive=adaptive, min_rounds=minimum, halting_patience=patience,
+            motion_tolerance=motion_tolerance, entropy_tolerance=entropy_tolerance)
+        if not adaptive:
+            graph._body.enhancements['thermal'] = False
+    return {'adaptive': adaptive, 'min_passes': minimum, 'max_passes': maximum, 'patience': patience}
+
+
+def add_reasoning_arguments(parser):
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--adaptive-reasoning', action='store_true')
+    modes.add_argument('--fixed-passes', type=int)
+    parser.add_argument('--min-passes', type=int)
+    parser.add_argument('--max-passes', type=int)
+    parser.add_argument('--halting-patience', type=int, default=2)
+    parser.add_argument('--motion-tolerance', type=float, default=0.05)
+    parser.add_argument('--entropy-tolerance', type=float, default=0.01)
+
+
+def apply_reasoning_arguments(model, args):
+    if args.fixed_passes is not None:
+        if args.min_passes is not None or args.max_passes is not None:
+            raise ValueError('fixed-passes cannot be combined with min/max-passes')
+        return set_reasoning_budget(model, args.fixed_passes, args.fixed_passes, False, args.halting_patience)
+    if args.adaptive_reasoning or args.min_passes is not None or args.max_passes is not None:
+        return set_reasoning_budget(model, args.min_passes if args.min_passes is not None else 2,
+            args.max_passes if args.max_passes is not None else 20, True, args.halting_patience,
+            args.motion_tolerance, args.entropy_tolerance)
+    return None
 
 class TokenGraph(nn.Module):
     """Flat adapter parameter names preserve PEFT save/load conventions.

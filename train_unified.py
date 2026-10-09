@@ -108,20 +108,22 @@ class UnifiedConfig:
 
 
 def validate_enhancements(options, rounds):
-    defaults = dict(scratchpad=False, latent_slots=0, thermal=False, min_rounds=2,
+    defaults = dict(scratchpad=False, latent_slots=0, thermal=False, adaptive=False, halting_patience=2, min_rounds=2,
         cross_modal=False, branches=False, async_branches=False, dual_friction=False, tool_gate=False, edge_routing=True, auxiliary_critics=True,
         temperature=1.0, temperature_floor=0.5, entropy_tolerance=0.01, motion_tolerance=0.01)
     if not isinstance(options, dict) or set(options) - set(defaults):
         raise ValueError('Unknown graph_enhancements setting')
     settings = defaults | options
-    if any(type(settings[key]) is not bool for key in ('scratchpad', 'thermal', 'cross_modal', 'branches', 'async_branches', 'dual_friction', 'tool_gate', 'edge_routing', 'auxiliary_critics')):
+    if any(type(settings[key]) is not bool for key in ('scratchpad', 'thermal', 'adaptive', 'cross_modal', 'branches', 'async_branches', 'dual_friction', 'tool_gate', 'edge_routing', 'auxiliary_critics')):
         raise ValueError('Feature switches must be booleans')
     if settings['async_branches'] and not settings['branches']:
         raise ValueError('async_branches requires branches')
     if type(settings['latent_slots']) is not int or settings['latent_slots'] < 0:
         raise ValueError('latent_slots must be a nonnegative integer')
-    if settings['thermal'] and (type(settings['min_rounds']) is not int or not 1 <= settings['min_rounds'] <= rounds):
+    if (settings['thermal'] or settings['adaptive']) and (type(settings['min_rounds']) is not int or not 1 <= settings['min_rounds'] <= rounds):
         raise ValueError('min_rounds must fit graph_rounds')
+    if type(settings['halting_patience']) is not int or settings['halting_patience'] < 1:
+        raise ValueError('halting_patience must be a positive integer')
     import math
     for key in ('temperature', 'temperature_floor', 'entropy_tolerance', 'motion_tolerance'):
         if not isinstance(settings[key], (float, int)) or not math.isfinite(settings[key]) or settings[key] <= 0:

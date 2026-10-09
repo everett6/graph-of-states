@@ -172,3 +172,7 @@ No fixed percentage memory savings or 12 GB capacity guarantee is assumed.
 ## Controlled experiments
 
 The offline four-baseline harness, verified task rewards, leakage audit, cache profiles, ablations, recovery tests and custom GGUF loader are documented in [docs/CONTROLLED_BENCHMARKS.md](docs/CONTROLLED_BENCHMARKS.md). The trained pilot is a functional check, not evidence of reasoning improvements.
+
+## Adaptive reasoning passes
+
+The same GoS layers can now run for an input-dependent number of passes with a minimum, maximum, and consecutive-stability stopping rule. See [docs/ADAPTIVE_REASONING.md](docs/ADAPTIVE_REASONING.md) for inference flags, the adaptive training configuration, and the separate adaptive GGUF export. Existing fixed-depth behavior is preserved.
