@@ -1,0 +1,121 @@
+{
+  "format_version": 1,
+  "base_path": "/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2",
+  "seed": 17,
+  "steps": 400,
+  "sequence_length": 640,
+  "width": 128,
+  "learning_rate": 0.0002,
+  "eval_per_kind": 10,
+  "max_new_tokens": 512,
+  "profile_new_tokens": 4,
+  "logit_chunk": 4,
+  "depths": [
+    4
+  ],
+  "rows_per_source": 8,
+  "validation_rows": 8,
+  "local_data": [],
+  "near_duplicate_threshold": 0.8,
+  "measure_eviction_quality": false,
+  "cache_quality_tokens": 16,
+  "ablations": [],
+  "lora_targets": "all-linear",
+  "lora_rank": 8,
+  "lora_learning_rate": 0.0002,
+  "heldout_tasks": [
+    "data/eval/heldout-v2.jsonl",
+    "data/lean/minif2f-test.jsonl"
+  ],
+  "heldout_samples": 2,
+  "heldout_max_new_tokens": 2048,
+  "heldout_temperature": 0.7,
+  "heldout_batch": 4,
+  "heldout_repair": true,
+  "synthetic_tasks": false,
+  "verified_tasks": [
+    "data/train/math-train-640.jsonl",
+    "data/train/lean/lean-workbook-640.jsonl"
+  ],
+  "heldout_per_source": {
+    "aime_2025": 30,
+    "hmmt_feb_2025": 30,
+    "aime_2026": 30,
+    "hmmt_feb_2026": 33,
+    "lcb_v6": 40,
+    "math500_l45": 40,
+    "minif2f_test": 40
+  },
+  "extra_variants": [
+    {
+      "name": "block-lora18-24-p1",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 1,
+          "eval_passes": [
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "recurrent-uniform-p4",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 4,
+          "pass_weights": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "eval_passes": [
+            1,
+            4,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "name": "recurrent-curriculum-m6",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "sampler": "poisson_lognormal",
+          "mean_passes": 6,
+          "sigma": 0.5,
+          "max_passes": 12,
+          "curriculum_steps": 300,
+          "curriculum": "1-sqrt",
+          "backprop_passes": 4,
+          "eval_passes": [
+            1,
+            4,
+            8,
+            12
+          ]
+        }
+      }
+    }
+  ],
+  "heldout_context": 4096,
+  "description": "Recurrent-depth round: does the retrofitted-recurrence recipe (arXiv 2511.07384: Poisson-lognormal pass counts with a 1-sqrt curriculum of the mean over the first 75% of steps, backprop through the last 4 passes) beat uniform 1-4 passes and the parameter-matched block LoRA without recurrence, and does accuracy rise with test-time passes (1/4/8/12, 12 is beyond the uniform arm's training range)? Same training data and steps for every arm (MATH-train plus Lean Workbook proofs within 640 tokens), paired on held-out v2 post-cutoff contest math, LCB v6 hidden tests, MATH-500 L4-5 and a miniF2F slice at 2048 tokens. Compare with scripts/compare_heldout.py --baseline block-lora18-24-p1/passes-1.",
+  "base_variants": [
+    "frozen"
+  ]
+}

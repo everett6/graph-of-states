@@ -29,6 +29,28 @@ out = layers [end, 48)(s_passes)                          # coda, frozen
 - Each extra pass adds 12.5% FLOPs, so compare at matched compute: the benchmark evaluates the **same
   weights** at 1 and 4 passes, and includes `block-lora18-24-p1` (identical LoRA, never re-passed).
 
+### Deep-recurrence training recipe (from retrofitted recurrence, arXiv 2511.07384)
+
+McLeish et al. convert pretrained decoders into recurrent ones and report better math at a fixed compute budget
+than post-training the original model, *if* depth is trained with (a) pass counts drawn from a Poisson-lognormal
+whose mean is raised over a curriculum (linear and 1-sqrt matched; 1-sqrt over the first 75% of training was
+used for math) and (b) backprop through only the last k recurrences (they used 8 at mean 32). Test-time gains
+saturated around 16–32 recurrences; recurring deeper than trained on harder problems stayed open.
+Both are recurrent-spec options here (benchmark and `rl_recurrent.py`):
+
+| key | meaning |
+|---|---|
+| `sampler` | `categorical` (default; `pass_weights` over 1..`max_passes`, unchanged draws) or `poisson_lognormal` |
+| `mean_passes`, `sigma` | Poisson-lognormal mean (passes = 1 + Poisson(e^τ), τ ~ N(log(m−1) − σ²/2, σ)), σ default 0.5; draws clip to `max_passes` |
+| `curriculum_steps`, `curriculum` | raise the mean from 1 to `mean_passes` over these steps, `linear` or `1-sqrt` |
+| `backprop_passes` | k: passes before the last k run without autograd (memory flat in pass count; gradient equals detaching the state entering the window, tested) |
+
+`pass_trace(model, ids)` reports each extra pass's relative state change, to see whether deep pass counts
+converge (shrinking) or diverge (growing). `configs/benchmark-depth-v2.json` compares, on identical rows:
+frozen, block LoRA p1, uniform 1–4 passes (evaluated at 1/4/8) and the curriculum recipe (mean 6, max 12,
+last 4 passes trained; evaluated at 1/4/8/12). `scripts/gpu_queue_depth.sh` runs it after the pilot, then the
+Lean/agent queue.
+
 ## Agent loop (`agent_loop.py`)
 
 The model may write `<run>…</run>`; generation stops there, the code runs in the sandbox (Docker if usable,

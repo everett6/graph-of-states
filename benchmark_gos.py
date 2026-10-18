@@ -333,7 +333,9 @@ def main():
     output=Path(args.output)
     if args.worker: worker(config,args.worker,args.depth,output,args.resume);return
     output.mkdir(parents=True,exist_ok=True);write(output/'configuration.json',config)
-    variants=[('frozen',config['depths'][0]),('lora',config['depths'][0]),('mlp',config['depths'][0])]+[('gos',d) for d in config['depths']]
+    base=config.get('base_variants',['frozen','lora','mlp','gos'])  # which standard arms run before extra_variants
+    if not set(base)<={'frozen','lora','mlp','gos'}: raise ValueError('Unknown base variant')
+    variants=[(v,config['depths'][0]) for v in base if v!='gos']+([('gos',d) for d in config['depths']] if 'gos' in base else [])
     reports=[]
     for variant,depth in variants:
         directory=output/f'{variant}-d{depth}'
