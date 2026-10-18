@@ -1,0 +1,98 @@
+{
+  "format_version": 1,
+  "base_path": "/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2",
+  "seed": 17,
+  "steps": 2,
+  "sequence_length": 640,
+  "width": 128,
+  "learning_rate": 0.0002,
+  "eval_per_kind": 1,
+  "max_new_tokens": 16,
+  "profile_new_tokens": 4,
+  "logit_chunk": 4,
+  "depths": [
+    2
+  ],
+  "rows_per_source": 8,
+  "validation_rows": 1,
+  "local_data": [],
+  "near_duplicate_threshold": 0.8,
+  "measure_eviction_quality": false,
+  "cache_quality_tokens": 16,
+  "ablations": [],
+  "lora_targets": "all-linear",
+  "lora_rank": 8,
+  "lora_learning_rate": 0.0002,
+  "heldout_tasks": [
+    "data/eval/heldout-v1.jsonl"
+  ],
+  "heldout_samples": 1,
+  "heldout_max_new_tokens": 32,
+  "heldout_temperature": 0.7,
+  "heldout_batch": 4,
+  "heldout_repair": true,
+  "synthetic_tasks": false,
+  "verified_tasks": [
+    "data/train/math-train-640.jsonl"
+  ],
+  "heldout_per_source": {
+    "aime_2025": 1,
+    "hmmt_feb_2025": 0,
+    "aime_2026": 0,
+    "hmmt_feb_2026": 0,
+    "math500_l45": 1,
+    "lcb_v6_leetcode": 1
+  },
+  "extra_variants": [
+    {
+      "name": "gos-deep-supervision-d4",
+      "worker": "gos",
+      "depth": 4,
+      "enhancements": {
+        "deep_supervision": true,
+        "thermal": false
+      }
+    },
+    {
+      "name": "recurrent-block18-24-p4",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 4,
+          "pass_weights": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "eval_passes": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "name": "block-lora18-24-p1",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 1,
+          "eval_passes": [
+            1,
+            2
+          ]
+        }
+      }
+    }
+  ],
+  "heldout_limit": null
+}
