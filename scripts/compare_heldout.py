@@ -76,15 +76,16 @@ def scaling(variants, resamples=10000):
     """{variant: {'passes-N': {group: paired}}} against the variant's fewest passes."""
     families = {}
     for name in variants:
-        match = re.fullmatch(r'(.+)/passes-(\d+)', name)
+        match = re.fullmatch(r'(.+)/(passes-(\d+)(-step[\d.]+)?)', name)
         if match:
-            families.setdefault(match.group(1), []).append(int(match.group(2)))
+            families.setdefault(match.group(1), []).append((int(match.group(3)), match.group(4) or '', match.group(2)))
     table = {}
-    for family, counts in sorted(families.items()):
-        counts.sort()
-        if len(counts) > 1:
-            subset = {f'passes-{n}': variants[f'{family}/passes-{n}'] for n in counts}
-            table[family] = compare(subset, f'passes-{counts[0]}', resamples)
+    for family, entries in sorted(families.items()):
+        entries.sort()
+        plain = [entry for entry in entries if not entry[1]]
+        if len(entries) > 1 and plain:
+            subset = {entry[2]: variants[f'{family}/{entry[2]}'] for entry in entries}
+            table[family] = compare(subset, plain[0][2], resamples)
     return table
 
 

@@ -265,11 +265,17 @@ def worker(config,variant,depth,output,resume=False):
     model.eval()
     by_passes={}
     if variant=='recurrent':
-        from gos_recurrent import set_passes
-        for passes in config.get('recurrent',{}).get('eval_passes',[1,config.get('recurrent',{}).get('max_passes',4)]):
-            set_passes(model,passes)
-            by_passes[str(passes)]=evaluate_split(model,tokenizer,config,variant,validation,evaluation,train,output/f'passes-{passes}')
-        model_eval=by_passes[str(passes)]  # headline numbers: the last (largest) pass count
+        from gos_recurrent import set_passes,set_step_scale
+        headline=None
+        for entry in config.get('recurrent',{}).get('eval_passes',[1,config.get('recurrent',{}).get('max_passes',4)]):
+            # An entry is a pass count, or [passes, step_scale] to damp every extra pass's update.
+            passes,scale=(entry,1.0) if isinstance(entry,int) else (int(entry[0]),float(entry[1]))
+            set_passes(model,passes);set_step_scale(model,scale)
+            name=str(passes) if scale==1.0 else f'{passes}-step{scale:g}'
+            by_passes[name]=evaluate_split(model,tokenizer,config,variant,validation,evaluation,train,output/f'passes-{name}')
+            if scale==1.0: headline=name
+        set_step_scale(model,1.0)
+        model_eval=by_passes[headline or name]  # headline numbers: the last undamped pass count
     else:
         model_eval=evaluate_split(model,tokenizer,config,variant,validation,evaluation,train,output)
     val,results=model_eval['validation_nll'],model_eval['test_outputs']
