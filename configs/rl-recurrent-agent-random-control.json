@@ -1,0 +1,34 @@
+{
+  "base_path": "/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2",
+  "sources": [
+    {
+      "name": "math",
+      "path": "data/train/math-train-v1.jsonl",
+      "weight": 2
+    },
+    {
+      "name": "code",
+      "path": "data/train/code-train-v1.jsonl",
+      "weight": 1
+    }
+  ],
+  "steps": 200,
+  "learning_rate": 1e-05,
+  "grpo_generations": 4,
+  "max_prompt_tokens": 2048,
+  "max_completion_tokens": 1536,
+  "agent_max_tools": 3,
+  "seed": 17,
+  "save_steps": 50,
+  "description": "Control: recurrent agentic GRPO with a random reward.",
+  "variant": "recurrent",
+  "recurrent": {
+    "start": 18,
+    "end": 24,
+    "rank": 64,
+    "lora_rank": 16,
+    "max_passes": 4
+  },
+  "reward_function": "verified_rewards:random_control_reward",
+  "output_dir": "runs/rl-recurrent-agent-random-control"
+}
