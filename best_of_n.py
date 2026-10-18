@@ -75,13 +75,23 @@ def hf_generator(model, tokenizer, max_new_tokens, temperature, batch, thinking=
         budget = min(max_new_tokens, context - ids.shape[1])
         if budget < 1:
             raise ValueError('Prompt exceeds the context budget')
+        kwargs = dict(do_sample=True, temperature=temperature, top_k=0, top_p=1.0) if sample else dict(do_sample=False)
+
+        def run(size):
+            # Deep recurrent pass counts hold a KV cache per pass; on CUDA OOM, split the batch instead of failing.
+            try:
+                return model.generate(input_ids=ids.repeat(size, 1), attention_mask=torch.ones_like(ids).repeat(size, 1),
+                                      max_new_tokens=budget, pad_token_id=tokenizer.pad_token_id, use_cache=True, **kwargs)
+            except torch.cuda.OutOfMemoryError:
+                if size == 1:
+                    raise
+                torch.cuda.empty_cache()
+                return [row for part in (size // 2, size - size // 2) for row in run(part)]
+
         results = []
         for offset in range(0, count, batch):
-            size = min(batch, count - offset)
-            kwargs = dict(do_sample=True, temperature=temperature, top_k=0, top_p=1.0) if sample else dict(do_sample=False)
-            output = model.generate(input_ids=ids.repeat(size, 1), attention_mask=torch.ones_like(ids).repeat(size, 1),
-                                    max_new_tokens=budget, pad_token_id=tokenizer.pad_token_id, use_cache=True, **kwargs)
-            for sequence in output[:, ids.shape[1]:]:
+            output = run(min(batch, count - offset))
+            for sequence in (row[ids.shape[1]:] for row in output):
                 tokens = sequence.tolist()
                 length = next((i + 1 for i, t in enumerate(tokens) if t == tokenizer.eos_token_id), len(tokens))
                 results.append((tokenizer.decode(tokens[:length], skip_special_tokens=True), length))

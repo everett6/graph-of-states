@@ -104,3 +104,29 @@ def test_benchmark_heldout_rejects_training_overlap(tmp_path, monkeypatch):
                                          [{'prompt': 'Compute the area of the unit square exactly please.'}], tmp_path)
     summary = benchmark_gos.heldout_evaluation(Model(), None, config, [{'prompt': 'unrelated text here'}], tmp_path)
     assert summary['overall']['pass@1'] == 1.0
+
+
+def test_generator_splits_batch_on_cuda_oom():
+    import torch
+    from best_of_n import hf_generator
+
+    class Tokenizer:
+        pad_token_id, eos_token_id = 0, 1
+        def apply_chat_template(self, messages, **kwargs):
+            return 'p'
+        def __call__(self, text, **kwargs):
+            return type('Encoded', (), {'input_ids': torch.tensor([[5, 6]])})()
+        def decode(self, tokens, **kwargs):
+            return ' '.join(map(str, tokens))
+
+    class Model:
+        device, sizes = 'cpu', []
+        def generate(self, input_ids, **kwargs):
+            self.sizes.append(input_ids.shape[0])
+            if input_ids.shape[0] > 1:
+                raise torch.cuda.OutOfMemoryError('fake')
+            return torch.cat([input_ids, torch.tensor([[7, 1]])], 1)
+
+    model = Model()
+    results = hf_generator(model, Tokenizer(), 4, 0.7, 4)([{'role': 'user', 'content': 'q'}], 3, True)
+    assert results == [('7 1', 2)] * 3 and model.sizes == [3, 1, 2, 1, 1]
