@@ -75,8 +75,9 @@ def agent_rollout(prompts, trainer):
     model = trainer.accelerator.unwrap_model(trainer.model)
     tokenizer = trainer.processing_class
     template = env_template(tokenizer)
-    stop_ids = {tokenizer.eos_token_id, *([tokenizer.convert_tokens_to_ids('<end_of_turn>')]
-                                         if '<end_of_turn>' in tokenizer.get_vocab() else [])}
+    configured = getattr(getattr(model, 'generation_config', None), 'eos_token_id', None)
+    configured = configured if isinstance(configured, list) else [configured]
+    stop_ids = {tokenizer.eos_token_id, *(i for i in configured if i is not None)}  # Gemma 4 ends turns with <turn|>
 
     def generate(ids, room):
         inputs = torch.tensor([ids], device=trainer.accelerator.device)
