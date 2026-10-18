@@ -84,7 +84,7 @@ def agent_rollout(prompts, trainer):
             out = model.generate(input_ids=inputs, attention_mask=torch.ones_like(inputs),
                                  use_cache=config.grpo_use_cache, max_new_tokens=room, do_sample=True,
                                  temperature=trainer.temperature, top_k=0, top_p=1.0,
-                                 pad_token_id=tokenizer.pad_token_id,
+                                 pad_token_id=tokenizer.pad_token_id, logits_to_keep=1,
                                  stopping_criteria=[text_stop(tokenizer, inputs.shape[1])])
         return out[0, inputs.shape[1]:].tolist()
 
