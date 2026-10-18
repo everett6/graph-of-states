@@ -57,3 +57,15 @@ def test_lean_tool_protocol_uses_lean_tags():
     result = run_agent('prove 1+1=2', generate, 3, executor, kind='lean')
     assert seen == ['simp\n', 'norm_num\n'] and 'unsolved goals' in result['messages'][2]['content']
     assert result['final'] == '```lean\nnorm_num\n```' and tool_call('<run>\nx\n</run>', LEAN)[0] is None
+
+
+def test_tool_sandbox_offers_read_only_sympy_when_built():
+    import pytest
+    from gos_tools import execute_python, tool_libs_available
+    if not tool_libs_available():
+        pytest.skip('run scripts/build_sandbox_libs.sh')
+    from agent_loop import AGENT_INSTRUCTIONS
+    assert 'sympy' in AGENT_INSTRUCTIONS
+    result = execute_python("import sympy\nx = sympy.Symbol('x')\nprint(sympy.factor(x**2 - 1))", timeout=10)
+    assert result['success'] and '(x - 1)*(x + 1)' in result['stdout']
+    assert not execute_python("open('/opt/gos-libs/x', 'w')", timeout=10)['success']

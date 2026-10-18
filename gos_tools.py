@@ -2,6 +2,7 @@
 import json
 import math
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -9,7 +10,13 @@ import threading
 import uuid
 
 
-RUNNER = '''import json, sys, traceback
+# Optional read-only math libraries for tool runs (scripts/build_sandbox_libs.sh: sympy, mpmath).
+TOOL_LIBS = Path(os.environ.get('GOS_TOOL_LIBS', Path(__file__).resolve().parent / 'sandbox_libs'))
+SANDBOX_LIBS = '/opt/gos-libs'
+
+RUNNER = '''import json, os, sys, traceback
+if os.path.isdir('/opt/gos-libs'):
+    sys.path.insert(0, '/opt/gos-libs')
 payload = json.load(sys.stdin)
 try:
     exec(compile(payload['code'], 'candidate.py', 'exec'), {'__name__':'__candidate__'})
@@ -32,6 +39,11 @@ def parse_tool_call(text):
     return call
 
 
+def tool_libs_available():
+    """True when sympy/mpmath can be mounted into the bubblewrap tool sandbox (not into Docker)."""
+    return (TOOL_LIBS / 'sympy').is_dir() and (TOOL_LIBS / 'mpmath').is_dir()
+
+
 def execute_python(code, timeout=10, output_limit=16384, image=None):
     """Return measured execution success and bounded raw feedback, not correctness."""
     if not isinstance(code, str) or not code.strip() or len(code.encode()) > 65536:
@@ -49,7 +61,8 @@ def execute_python(code, timeout=10, output_limit=16384, image=None):
             '--cap-drop=ALL', '--security-opt=no-new-privileges', '--user=65534:65534',
             '--tmpfs=/tmp:rw,noexec,nosuid,size=64m', image, 'python', '-I', '-c', RUNNER]
     else:
-        command = BWRAP + ['/usr/bin/python3', '-I', '-c', RUNNER]
+        libs = ['--ro-bind', str(TOOL_LIBS), SANDBOX_LIBS] if tool_libs_available() else []
+        command = BWRAP + libs + ['/usr/bin/python3', '-I', '-c', RUNNER]
     process = None
     threads = []
     buffers = [bytearray(), bytearray()]

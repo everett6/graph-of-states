@@ -15,8 +15,11 @@ import time
 from eval_search import extracted_answer, read_jsonl, summarize
 from verified_rewards import verify
 
+from gos_tools import tool_libs_available  # noqa: E402
+
 AGENT_INSTRUCTIONS = (
-    '\n\nYou can run Python 3 (standard library only, no internet) to calculate or to test your code. '
+    '\n\nYou can run Python 3 (' + ('standard library plus sympy and mpmath' if tool_libs_available() else
+                                     'standard library only') + ', no internet) to calculate or to test your code. '
     'To run code, write it between <run> and </run> on their own lines, then stop and wait: '
     'the output will be shown to you. Use at most {tools} runs. When you are confident, reply without '
     '<run> and give the final answer in the requested format.')

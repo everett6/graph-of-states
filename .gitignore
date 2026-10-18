@@ -9,3 +9,4 @@ feature_cache/
 .venv-training/
 data/
 lean_env/.lake/
+sandbox_libs/
