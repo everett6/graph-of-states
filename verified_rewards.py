@@ -106,22 +106,47 @@ class RestrictedEvaluator:
         return result
 
 
+def answer_text(completion):
+    """The final answer span: last balanced \\boxed{}, else the last line minus an 'Answer:' prefix."""
+    from symbolic_math import boxed
+    text = final_text(completion)
+    if len(text)>65536: raise ValueError('Answer too long')
+    inner = boxed(text)
+    if inner is None:
+        lines = text.strip().splitlines()
+        inner = lines[-1] if lines else ''
+    return re.sub(r'^(?:final answer|answer)\s*:\s*', '', inner.strip(), flags=re.I).strip()
+
+
+def numeric_value(text):
+    value=RestrictedEvaluator().expression(ast.parse(str(text).replace('^','**'),mode='eval').body)
+    if type(value) is bool or not isinstance(value,Fraction): raise ValueError('Expected numeric answer')
+    return value
+
+
 def math_reward(completion, expected, tolerance='0'):
-    reference=RestrictedEvaluator().expression(ast.parse(str(expected).replace('^','**'),mode='eval').body)
+    """Exact rational check when both sides are plain numbers; otherwise SymPy equivalence."""
+    from symbolic_math import Unsupported, equivalent, parse_answer
     tol=Fraction(str(tolerance))
-    if type(reference) is bool or not isinstance(reference,Fraction) or tol<0: raise ValueError('Invalid numeric reference/tolerance')
+    if tol<0: raise ValueError('Invalid numeric reference/tolerance')
     try:
-        text = final_text(completion)
-        if len(text)>4096: raise ValueError('Answer too long')
-        boxed = re.search(r'\\boxed\{([^{}]+)\}\s*$',text)
-        text = boxed.group(1) if boxed else text.splitlines()[-1]
-        text = re.sub(r'^(?:final answer|answer)\s*:\s*', '', text, flags=re.I).strip()
-        text = text.replace('^','**')
-        actual=RestrictedEvaluator().expression(ast.parse(text,mode='eval').body)
-        if type(actual) is bool or not isinstance(actual,Fraction): raise ValueError('Expected numeric answer')
-        return Verdict(True,abs(actual-reference)<=tol,'numeric_equivalence')
-    except (ValueError,SyntaxError,TypeError,KeyError,ZeroDivisionError,IndexError,OverflowError,RecursionError):
-        return Verdict(True,False,'invalid_numeric_answer')
+        reference=numeric_value(expected)
+    except (ValueError,SyntaxError,TypeError,ZeroDivisionError,OverflowError,RecursionError):
+        reference=None
+        try: parse_answer(expected)
+        except (Unsupported,SyntaxError,TypeError,ValueError,ZeroDivisionError) as error:
+            raise ValueError('Invalid math reference') from error
+    try:
+        text = answer_text(completion)
+        if reference is not None:
+            try:
+                return Verdict(True,abs(numeric_value(text)-reference)<=tol,'numeric_equivalence')
+            except (ValueError,SyntaxError,TypeError,KeyError,ZeroDivisionError,IndexError,OverflowError,RecursionError):
+                pass
+        return Verdict(True,bool(equivalent(text,expected,tol)),'symbolic_equivalence')
+    except (Unsupported,TimeoutError,ValueError,SyntaxError,TypeError,KeyError,ZeroDivisionError,IndexError,
+            OverflowError,RecursionError,AttributeError):
+        return Verdict(True,False,'invalid_math_answer')
 
 
 def strict_json(text):
@@ -193,6 +218,7 @@ def coding_reward(completion, spec):
 
 
 def verify(completion, task):
+    task=_spec(task)
     kind=task['kind']
     if kind=='math': return math_reward(completion,task['expected'],task.get('tolerance','0'))
     if kind=='structured': return structured_reward(completion,task['expected'],task.get('schema'))
@@ -205,3 +231,35 @@ def task_verified_reward(completions, task_spec, **kwargs):
     verdicts=[verify(text,spec) for text,spec in zip(completions,task_spec)]
     if any(not verdict.verified for verdict in verdicts): raise RuntimeError('A task verifier is unavailable')
     return [float(verdict.correct) for verdict in verdicts]
+
+
+def _spec(value):
+    """Task specs may arrive as JSON strings (Arrow-safe) or dicts padded with None by Arrow."""
+    if isinstance(value,str): value=json.loads(value)
+    return None if value is None else {key:item for key,item in value.items() if item is not None}
+
+
+def grpo_verified_reward(completions, answer=None, task_spec=None, **kwargs):
+    """GRPO reward: task_spec verifier when present, else SymPy check of the reference's
+    \\boxed{} answer, else exact final-text match (the old baseline). Fails loudly when a
+    configured verifier is unavailable."""
+    from symbolic_math import boxed
+    answers=answer if answer is not None else [None]*len(completions)
+    specs=task_spec if task_spec is not None else [None]*len(completions)
+    if not len(completions)==len(answers)==len(specs): raise ValueError('Task/reward batch mismatch')
+    rewards=[]
+    for completion,reference,raw in zip(completions,answers,specs):
+        spec=_spec(raw)
+        if spec:
+            verdict=verify(completion,spec)
+            if not verdict.verified: raise RuntimeError('A task verifier is unavailable: '+verdict.reason)
+            rewards.append(float(verdict.correct)); continue
+        if reference is None: raise ValueError('Row has neither task_spec nor reference answer')
+        target=boxed(final_text(reference))
+        if target is not None:
+            try:
+                rewards.append(float(math_reward(completion,target).correct)); continue
+            except ValueError:
+                pass  # Unparseable reference answer: fall back to exact text.
+        rewards.append(float(final_text(completion)==final_text(reference)))
+    return rewards

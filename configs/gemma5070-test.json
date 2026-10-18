@@ -40,7 +40,7 @@
   "critic_weight": 0.1,
   "gpu_memory_fraction": 0.9,
   "seed": 17,
-  "reward_function": "train_unified:exact_answer_reward",
+  "reward_function": "verified_rewards:grpo_verified_reward",
   "graph_enhancements": {
     "scratchpad": true,
     "latent_slots": 4,

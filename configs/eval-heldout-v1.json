@@ -1,0 +1,11 @@
+{
+  "description": "Held-out math/code eval. Gemma 4 pretraining cutoff is January 2025 (model card); post_cutoff sources were released after it. MATH-500 is pre-cutoff and reported separately.",
+  "sources": [
+    {"name": "aime_2025", "adapter": "math", "path": "data/eval/aime_2025.parquet", "cutoff_status": "post_cutoff"},
+    {"name": "hmmt_feb_2025", "adapter": "math", "path": "data/eval/hmmt_feb_2025.parquet", "cutoff_status": "post_cutoff"},
+    {"name": "aime_2026", "adapter": "math", "path": "data/eval/aime_2026.parquet", "cutoff_status": "post_cutoff"},
+    {"name": "hmmt_feb_2026", "adapter": "math", "path": "data/eval/hmmt_feb_2026.parquet", "cutoff_status": "post_cutoff"},
+    {"name": "math500_l45", "adapter": "math", "path": "data/eval/math500.parquet", "min_level": 4, "cutoff_status": "pre_cutoff"},
+    {"name": "lcb_v6_leetcode", "adapter": "livecodebench", "path": "data/eval/lcb_test6.jsonl", "released_after": "2025-01-31", "cutoff_status": "post_cutoff"}
+  ]
+}
