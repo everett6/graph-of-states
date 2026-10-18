@@ -38,7 +38,7 @@ class MatchedMLP(nn.Module):
 def trainable_count(model): return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def configure(base, variant, width=32, rounds=2, enhancements=None, lora_rank=2):
+def configure(base, variant, width=32, rounds=2, enhancements=None, lora_rank=2, lora_targets='qv'):
     base.requires_grad_(False)
     if variant=='frozen': return base
     if variant=='gos': return attach_gos(base,width,4,rounds,enhancements)
@@ -53,7 +53,8 @@ def configure(base, variant, width=32, rounds=2, enhancements=None, lora_rank=2)
     if variant=='lora':
         from peft import LoraConfig,get_peft_model
         model=get_peft_model(base,LoraConfig(r=lora_rank,lora_alpha=2*lora_rank,lora_dropout=0,
-            target_modules=['q_proj','v_proj'],task_type='CAUSAL_LM'))
+            # 'all-linear' adapts attention and MLP projections (attention-only LoRA underperforms in RL).
+            target_modules={'qv':['q_proj','v_proj'],'all-linear':'all-linear'}[lora_targets],task_type='CAUSAL_LM'))
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant':False})
         model.enable_input_require_grads()
         return model

@@ -144,6 +144,25 @@ def profile_rollout(model,tokenizer,rows,config):
     return profiles
 
 
+def heldout_evaluation(model,tokenizer,config,train,output):
+    """Sampled pass@k / maj@k on held-out task files that never enter training or the split."""
+    from best_of_n import evaluate_row,hf_generator
+    from build_eval_set import jaccard_flags
+    from eval_search import read_jsonl,summarize
+    rows=[row for path in config['heldout_tasks'] for row in read_jsonl(path)][:config.get('heldout_limit')]
+    probe=[{'prompt':row['prompt']} for row in rows]
+    jaccard_flags(probe,[r['prompt'] for r in train],config.get('heldout_leak_threshold',0.5))
+    leaks=[row['id'] for row,item in zip(rows,probe) if item['contamination']['flagged'] and item['contamination']['match']=='reference']
+    if leaks: raise RuntimeError(f'Held-out rows overlap training rows: {leaks[:5]}')
+    k=config.get('heldout_samples',4);ks=[x for x in (1,2,4,8,16) if x<=k]
+    seed_all(config['seed']);model.eval()
+    generate=hf_generator(model,tokenizer,config.get('heldout_max_new_tokens',1024),config.get('heldout_temperature',0.7),
+        config.get('heldout_batch',4),context=config.get('heldout_context',4096))
+    records=[evaluate_row(row,generate,k,config.get('heldout_repair',True)) for row in rows]
+    Path(output,'heldout_records.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records))
+    return summarize(records,ks)
+
+
 def worker(config,variant,depth,output,resume=False):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     seed_all(config['seed']);model,tokenizer=load_local_gemma(config['base_path'])
@@ -151,7 +170,7 @@ def worker(config,variant,depth,output,resume=False):
         'edge_routing':True,'auxiliary_critics':True,'min_rounds':min(2,depth)}|config.get('enhancements',{})
     from train_unified import validate_enhancements
     validate_enhancements(enhancements,depth)
-    model=configure(model,variant,config['width'],depth,enhancements,config.get('lora_rank',2))
+    model=configure(model,variant,config['width'],depth,enhancements,config.get('lora_rank',2),config.get('lora_targets','qv'))
     rows,audit=make_dataset(config,tokenizer);write(output/'split_audit.json',audit)
     write(output/'dataset_manifest.json',rows)
     train=[r for r in rows if r['split']=='train' and any(x!=-100 for x in r['labels'][1:])]
@@ -169,7 +188,8 @@ def worker(config,variant,depth,output,resume=False):
             if pool: train.append(pool.pop())
     metadata={'config_sha256':digest(config),'data_sha256':audit['sha256'],'variant':variant,'depth':depth}
     params=[p for p in model.parameters() if p.requires_grad]
-    optimizer=torch.optim.AdamW(params,lr=config['learning_rate']) if params else None
+    lr=config.get('lora_learning_rate',config['learning_rate']) if variant=='lora' else config['learning_rate']
+    optimizer=torch.optim.AdamW(params,lr=lr) if params else None
     start_step=load_checkpoint(output/'checkpoint.pt',model,optimizer,metadata) if resume else 0
     if not resume and (output/'checkpoint.pt').exists(): raise FileExistsError('Use --resume or a fresh output directory')
     before={n:p.detach().cpu().clone() for n,p in model.named_parameters() if p.requires_grad}
@@ -210,6 +230,8 @@ def worker(config,variant,depth,output,resume=False):
         'git_branch':subprocess.check_output(['git','branch','--show-current'],text=True).strip(),
         'limitations':['Short pilot; no reasoning improvement established.','Lexical near-duplicate audit is not semantic equivalence.',
             'Restricted Python tasks cover a safe pure-function subset.','Deterministic seeds do not guarantee bitwise CUDA reproducibility.']}
+    if config.get('heldout_tasks'):
+        report['heldout']=heldout_evaluation(model,tokenizer,config,train,output)
     if variant=='gos':
         if config.get('measure_eviction_quality',False):
             from cache_quality import cache_quality

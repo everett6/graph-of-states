@@ -263,3 +263,35 @@ def grpo_verified_reward(completions, answer=None, task_spec=None, **kwargs):
                 pass  # Unparseable reference answer: fall back to exact text.
         rewards.append(float(final_text(completion)==final_text(reference)))
     return rewards
+
+
+def random_control_reward(completions, **kwargs):
+    """Control: a fair coin keyed on the completion text, independent of correctness.
+    A GRPO gain under this reward is not evidence that correctness feedback helped."""
+    import hashlib
+    return [float(hashlib.sha256(('gos-random-control-v1:'+final_text(text)).encode()).digest()[0]&1)
+            for text in completions]
+
+
+def format_only_reward(completions, answer=None, task_spec=None, **kwargs):
+    """Control: 1 when the answer is in checkable form (parseable \\boxed{} for math, a Python block that
+    parses for code), regardless of correctness."""
+    from docker_code_reward import extract_code
+    from symbolic_math import Unsupported, boxed, parse_answer
+    answers=answer if answer is not None else [None]*len(completions)
+    specs=task_spec if task_spec is not None else [None]*len(completions)
+    rewards=[]
+    for completion,reference,raw in zip(completions,answers,specs):
+        spec=_spec(raw) or {}
+        text=final_text(completion)
+        if spec.get('kind')=='coding':
+            try: ast.parse(extract_code(text)); rewards.append(1.0)
+            except SyntaxError: rewards.append(0.0)
+            continue
+        if spec.get('kind')=='math' or (reference is not None and boxed(final_text(reference)) is not None):
+            inner=boxed(text)
+            try: ok=inner is not None and parse_answer(inner) is not None
+            except (Unsupported,SyntaxError,TypeError,ValueError,ZeroDivisionError): ok=False
+            rewards.append(float(ok)); continue
+        rewards.append(float(bool(text.strip())))
+    return rewards
