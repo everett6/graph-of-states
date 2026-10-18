@@ -1,0 +1,38 @@
+{
+  "base_path": "/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2",
+  "sources": [
+    {
+      "name": "math",
+      "path": "data/train/math-train-v1.jsonl",
+      "weight": 2
+    },
+    {
+      "name": "code",
+      "path": "data/train/code-train-v1.jsonl",
+      "weight": 1
+    }
+  ],
+  "steps": 200,
+  "learning_rate": 1e-05,
+  "grpo_generations": 4,
+  "max_prompt_tokens": 2048,
+  "max_completion_tokens": 1536,
+  "agent_max_tools": 3,
+  "seed": 17,
+  "save_steps": 50,
+  "description": "Agentic GRPO continuing the depth round's curriculum adapter at its final pass distribution (Poisson-lognormal mean 6, max 12, backprop through the last 4). Run only if recurrent-curriculum-m6 beats block-lora18-24-p1 in runs/depth-v2.",
+  "variant": "recurrent",
+  "recurrent": {
+    "start": 18,
+    "end": 24,
+    "rank": 64,
+    "lora_rank": 16,
+    "sampler": "poisson_lognormal",
+    "mean_passes": 6,
+    "sigma": 0.5,
+    "max_passes": 12,
+    "backprop_passes": 4
+  },
+  "output_dir": "runs/rl-recurrent-curriculum-agent",
+  "init_adapter": "runs/depth-v2/recurrent-curriculum-m6/adapter"
+}
