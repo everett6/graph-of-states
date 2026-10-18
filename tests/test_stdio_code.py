@@ -51,3 +51,23 @@ def test_stdio_supports_real_file_descriptors(monkeypatch):
         assert verdict.correct, (program, verdict.reason)
     reason = verify('```python\nx = [0] * (10 ** 10)\n```', spec).reason
     assert 'MemoryError' in reason or 'signal' in reason
+
+
+@pytest.mark.skipif(not bwrap_works(), reason='bubblewrap unavailable')
+def test_functional_results_are_judged_on_the_host(monkeypatch):
+    from docker_code_reward import same_value
+    monkeypatch.setenv('LRR_CODE_SANDBOX', 'bwrap')
+    assert same_value([1, 2.0000000001], [1, 2]) and not same_value(True, 1) and not same_value([1], [1, 2])
+    spec = {'kind': 'coding', 'verifier': 'functional', 'func_name': 'add',
+            'cases': [['1\n2', '3'], ['[1, 2]\n0', '[1, 2]'], ['0\n0', 'false']]}
+    good = ('class Solution:\n    def add(self, a, b):\n'
+            '        return a + [b] * 0 if isinstance(a, list) else (False if a == b == 0 else a + b)')
+    assert verify(f'```python\n{good}\n```', spec).correct
+    always_equal = ('class E:\n    def __eq__(self, other):\n        return True\n'
+                    'class Solution:\n    def add(self, a, b):\n        return E()')
+    assert not verify(f'```python\n{always_equal}\n```', spec).correct
+    int_subclass = ('class I(int):\n    def __eq__(self, other):\n        return True\n'
+                    'class Solution:\n    def add(self, a, b):\n        return I(0)')
+    assert not verify(f'```python\n{int_subclass}\n```', spec).correct
+    bool_for_int = good.replace('False if', '0 if')
+    assert 'case 2' in verify(f'```python\n{bool_for_int}\n```', spec).reason  # 0 is not false

@@ -40,11 +40,15 @@ AI-MO/minif2f_test, Goedel-LM MathOlympiadBench and Lean-workbook-proofs.
 ## Verifiers
 
 - **Math**: exact rational, then SymPy equivalence through an AST whitelist (no `eval` of model text).
-- **Code, functional**: assertion script in a sandbox (Docker if usable, else bubblewrap: no network,
-  read-only `/usr`, 1 GB / 12 s CPU limits); a per-run nonce stops `os._exit(42)` forgeries.
-- **Code, stdin/stdout**: the sandbox only runs the program on each input and returns its output; the host
-  compares with the expected output (whitespace tokens, numbers within 1e-6). Expected outputs never enter
-  the sandbox, so a pass cannot be forged.
+- **Sandbox**: Docker if usable, else bubblewrap (no network, read-only `/usr`, 1 GB / 12 s CPU limits).
+- **Code, functional (training set, held-out v2)**: the sandbox calls `Solution().<method>(*args)` and returns
+  each result as JSON; the host compares type-strictly (`True != 1`, floats within 1e-6). Expected outputs
+  never enter the sandbox, and an object whose `__eq__` always returns True cannot pass (it does pass an
+  in-sandbox `assert got == expected`; tested).
+- **Code, functional (held-out v1 only)**: the older assertion script inside the sandbox, with a per-run nonce
+  against `os._exit(42)` forgeries. Fine for scoring frozen or SFT models; do not use it as an RL reward.
+- **Code, stdin/stdout**: each test case runs in a forked child with real stdin/stdout pipes (so `input()`,
+  `open(0)` and `os.write(1)` all work); the host compares outputs (whitespace tokens, numbers within 1e-6).
 - **LCB hidden tests** are zlib+pickle encoded; they are decoded with an unpickler that refuses every global,
   so only plain strings and containers can be built.
 - **Lean**: see `docs/FORMAL_PROOFS.md`.

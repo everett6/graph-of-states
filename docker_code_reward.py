@@ -118,6 +118,37 @@ def main():
     os._exit(0)
 main()
 '''
+# Functional (LeetCode-style) problems judged on the host: the sandbox returns each call's result as JSON and
+# the host compares, type-strict. In-sandbox `assert got == expected` can be beaten by an object whose __eq__
+# always returns True; serialized results cannot, and expected outputs never enter the sandbox.
+FUNCTIONAL_RUNNER = '''import io, json, os, sys
+def main():
+    payload = json.load(sys.stdin)
+    report = os.fdopen(os.dup(1), "w")
+    os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
+    sys.stdout = sys.stderr = io.StringIO()
+    namespace = {"__name__": "__candidate__"}
+    try:
+        exec(compile(payload["code"], "candidate.py", "exec"), namespace)
+        method = getattr(namespace["Solution"](), payload["func"])
+    except BaseException as error:
+        report.write(json.dumps({"error": type(error).__name__ + ": " + str(error)[:300]}))
+        report.flush()
+        os._exit(1)
+    results = []
+    for text in payload["inputs"]:
+        try:
+            args = [json.loads(line) for line in text.split("\\n") if line.strip()]
+            value = json.dumps(method(*args), allow_nan=False)
+            results.append({"result": value[:65536], "error": None})
+        except BaseException as error:
+            results.append({"result": None, "error": type(error).__name__ + ": " + str(error)[:300]})
+            break
+    report.write(json.dumps({"outputs": results}))
+    report.flush()
+    os._exit(0)
+main()
+'''
 FEEDBACK_LIMIT = 2048
 STDIO_READ_LIMIT = 4 << 20
 
@@ -272,4 +303,50 @@ def stdio_test_details(code, cases):
         if not outputs_match(str(run.get('stdout', '')), expected):
             return False, (f'case {index}: input {stdin[:200]!r}: expected {expected[:200]!r}, '
                            f'got {str(run.get("stdout", ""))[:200]!r}')
+    return True, ''
+
+
+def same_value(got, expected):
+    """Type-strict JSON equality (True != 1), floats within 1e-6."""
+    if isinstance(got, bool) or isinstance(expected, bool):
+        return type(got) is type(expected) and got == expected
+    if isinstance(got, (int, float)) and isinstance(expected, (int, float)):
+        if isinstance(got, int) and isinstance(expected, int):
+            return got == expected
+        return math.isclose(got, expected, rel_tol=1e-6, abs_tol=1e-6)
+    if isinstance(got, list) and isinstance(expected, list):
+        return len(got) == len(expected) and all(same_value(a, b) for a, b in zip(got, expected))
+    if isinstance(got, dict) and isinstance(expected, dict):
+        return got.keys() == expected.keys() and all(same_value(got[k], expected[k]) for k in got)
+    return type(got) is type(expected) and got == expected
+
+
+def functional_test_details(code, func, cases):
+    """(passed, feedback) for `Solution().<func>(*args)` on [[args_text, expected_json], ...]."""
+    if not cases or not func.isidentifier():
+        raise ValueError('functional verifier needs a method name and test cases')
+    try:
+        _, output = run_sandboxed(FUNCTIONAL_RUNNER, {'code': code, 'func': func,
+                                                      'inputs': [case[0] for case in cases]}, STDIO_READ_LIMIT)
+    except subprocess.TimeoutExpired:
+        return False, 'timeout after 15 seconds'
+    try:
+        report = json.loads(output)
+    except ValueError:
+        return False, 'program produced no readable result (crashed, killed or exceeded limits)'
+    if 'error' in report:
+        return False, str(report['error'])[:FEEDBACK_LIMIT]
+    runs = report.get('outputs') if isinstance(report.get('outputs'), list) else []
+    for index, (args, expected) in enumerate(cases):
+        run = runs[index] if index < len(runs) and isinstance(runs[index], dict) else None
+        if run is None:
+            return False, f'case {index}: no result'
+        if run.get('error'):
+            return False, f'case {index}: input {args[:200]!r}: {str(run["error"])[:300]}'
+        try:
+            got = json.loads(run.get('result'))
+        except (TypeError, ValueError):
+            return False, f'case {index}: result is not JSON-serializable'
+        if not same_value(got, json.loads(expected)):
+            return False, f'case {index}: input {args[:200]!r}: expected {expected[:200]!r}, got {run["result"][:200]!r}'
     return True, ''

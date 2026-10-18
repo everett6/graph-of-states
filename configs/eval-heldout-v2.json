@@ -1,5 +1,5 @@
 {
-  "description": "Held-out v2: v1 math sources unchanged; code now covers all LiveCodeBench v6 problems released after 2025-01-31 (LeetCode functional and AtCoder/Codeforces stdin/stdout) graded on public plus hidden tests (up to 256 KB of cases per problem, private pickles decoded with no globals). v1 stays as-is for comparability. Gemma 4 pretraining cutoff is January 2025 (model card).",
+  "description": "Held-out v2: v1 math sources unchanged; code now covers all LiveCodeBench v6 problems released after 2025-01-31 (LeetCode functional and AtCoder/Codeforces stdin/stdout) graded on public plus hidden tests (up to 256 KB of cases per problem, private pickles decoded with no globals). v1 stays as-is for comparability. Gemma 4 pretraining cutoff is January 2025 (model card). Functional problems are judged on the host (type-strict JSON results).",
   "sources": [
     {
       "name": "aime_2025",
@@ -40,7 +40,8 @@
       "stdio": true,
       "private_tests": true,
       "max_test_bytes": 262144,
-      "cutoff_status": "post_cutoff"
+      "cutoff_status": "post_cutoff",
+      "host_judged": true
     }
   ]
 }

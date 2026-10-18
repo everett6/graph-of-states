@@ -138,6 +138,12 @@ def livecodebench_rows(source, stats):
             raise ValueError('Functional problem without a valid func_name')
         prompt = (row['question_content'].strip() + '\n\nStarter code:\n```python\n' +
                   row['starter_code'].strip() + '\n```' + CODE_SUFFIX)
+        if source.get('host_judged'):  # results compared outside the sandbox (no always-equal objects)
+            spec = {'kind': 'coding', 'verifier': 'functional', 'func_name': func,
+                    'cases': [[case['input'], case['output']] for case in cases]}
+            yield {'id': f"{source['name']}/{row['question_id']}", 'prompt': prompt, 'answer': '',
+                   'task_spec': spec, 'meta': meta}
+            continue
         tests = leetcode_tests(func, cases)
         yield {'id': f"{source['name']}/{row['question_id']}", 'prompt': prompt, 'answer': '',
                'tests': tests, 'task_spec': {'kind': 'coding', 'verifier': 'docker', 'tests': tests}, 'meta': meta}

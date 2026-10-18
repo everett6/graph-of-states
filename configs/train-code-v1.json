@@ -1,5 +1,5 @@
 {
-  "description": "LiveCodeBench v1-v4 problems (LeetCode functional and AtCoder/Codeforces stdin/stdout) released before 2025, for code RL/RFT. Public plus private tests (up to 64 KB of cases per problem, private pickles decoded with no globals). Disjoint by date from the held-out LCB rows (released after 2025-01-31); screen with --against. Problems with fewer than 3 private tests that fit the budget are dropped.",
+  "description": "LiveCodeBench v1-v4 problems (LeetCode functional and AtCoder/Codeforces stdin/stdout) released before 2025, for code RL/RFT. Public plus private tests (up to 64 KB of cases per problem, private pickles decoded with no globals). Disjoint by date from the held-out LCB rows (released after 2025-01-31); screen with --against. Problems with fewer than 3 private tests that fit the budget are dropped. Functional problems are judged on the host (type-strict JSON results).",
   "sources": [
     {
       "name": "lcb_train_test",
@@ -10,7 +10,8 @@
       "max_test_bytes": 65536,
       "cutoff_status": "pre_cutoff",
       "stdio": true,
-      "min_private_tests": 3
+      "min_private_tests": 3,
+      "host_judged": true
     },
     {
       "name": "lcb_train_test2",
@@ -21,7 +22,8 @@
       "max_test_bytes": 65536,
       "cutoff_status": "pre_cutoff",
       "stdio": true,
-      "min_private_tests": 3
+      "min_private_tests": 3,
+      "host_judged": true
     },
     {
       "name": "lcb_train_test3",
@@ -32,7 +34,8 @@
       "max_test_bytes": 65536,
       "cutoff_status": "pre_cutoff",
       "stdio": true,
-      "min_private_tests": 3
+      "min_private_tests": 3,
+      "host_judged": true
     },
     {
       "name": "lcb_train_test4",
@@ -43,7 +46,8 @@
       "max_test_bytes": 65536,
       "cutoff_status": "pre_cutoff",
       "stdio": true,
-      "min_private_tests": 3
+      "min_private_tests": 3,
+      "host_judged": true
     }
   ]
 }
