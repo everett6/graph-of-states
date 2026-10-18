@@ -37,6 +37,7 @@ class RecurrenceAdapter(nn.Module):
         self._anchor = None
         self._previous = None
         self.trace = None  # set to a list to record each extra pass's relative state change
+        self.step_scale = 1.0  # inference-time damping of every extra pass's update (see set_step_scale)
 
     def inject(self, state, anchor):
         normed = anchor * torch.rsqrt(anchor.float().pow(2).mean(-1, keepdim=True) + self.norm_eps).to(anchor.dtype)
@@ -44,7 +45,8 @@ class RecurrenceAdapter(nn.Module):
         return state + delta.to(state.dtype)
 
     def mix(self, previous, output):
-        mixed = previous + (self.gate.to(output.dtype) * (output - previous))
+        gate = self.gate if self.step_scale == 1.0 else self.gate * self.step_scale
+        mixed = previous + (gate.to(output.dtype) * (output - previous))
         if self.trace is not None:
             with torch.no_grad():
                 change = (mixed - previous).float().norm() / previous.float().norm().clamp_min(1e-12)
@@ -150,6 +152,15 @@ def set_passes(model, passes, backprop=None):
     decoder.config.num_hidden_layers = len(slots)
     spec['passes'], spec['backprop'] = passes, backprop
     return passes
+
+
+def set_step_scale(model, scale):
+    """Damp each extra pass's update by `scale` (1.0 = trained behaviour). 'Right Direction, Wrong Step'
+    (arXiv 2609.16665) finds extra loop iterations often hurt by overshooting along a helpful direction, and a
+    fixed quarter step recovers most of those failures; useful when running more passes than were trained."""
+    if not 0 < scale <= 1:
+        raise ValueError('step scale must be in (0, 1]')
+    text_model(model).recurrence.step_scale = float(scale)
 
 
 def recurrence_parameters(model):

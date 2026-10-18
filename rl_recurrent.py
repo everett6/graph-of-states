@@ -5,6 +5,9 @@ parameters live inside the network (gos_recurrent block + block LoRA, or LoRA ev
 from a full forward with a chunked vocabulary projection. Each step samples a pass count (like the SFT
 benchmark) and uses it for both generation and scoring. agent_max_tools > 0 uses agent_rl.agent_rollout.
 init_adapter continues from an SFT adapter directory (e.g. runs/pilot-heldout-v1/<variant>/adapter).
+Loss defaults follow DAPO / Dr. GRPO: token-level loss ('dapo', no per-sequence length bias), group advantages
+not divided by their std ('none'), and truncated completions masked out of the loss, so a long derivation
+cut off by the budget is not taught as a wrong answer.
 
     .venv-training/bin/python rl_recurrent.py --config configs/rl-recurrent-agent.json
 """
@@ -25,7 +28,8 @@ DEFAULTS = dict(variant='recurrent', recurrent={'start': 18, 'end': 24, 'rank': 
                 pass_weights=None, lora_rank=8, lora_targets='all-linear', steps=200, learning_rate=1e-5,
                 grpo_generations=4, max_prompt_tokens=2048, max_completion_tokens=1024, agent_max_tools=0,
                 reward_function='verified_rewards:grpo_verified_reward', seed=17, logits_chunk=64,
-                grpo_use_cache=True, save_steps=50)
+                grpo_use_cache=True, save_steps=50, loss_type='dapo', scale_rewards='none',
+                mask_truncated_completions=True)
 
 
 def chunked_logps(model, input_ids, logits_to_keep, temperature=1.0, chunk=64, entropy=False):
@@ -56,6 +60,13 @@ class RecurrentGRPOTrainer(GRPOTrainer):
     def __init__(self, *args, gos_config, **kwargs):
         self.gos_config = gos_config
         super().__init__(*args, **kwargs)
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        loss = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+        if not loss.requires_grad:
+            # Every completion was masked (all truncated): the step is a no-op, but backward needs a graph.
+            loss = loss + sum(p.sum() * 0 for p in model.parameters() if p.requires_grad)
+        return loss
 
     def _get_per_token_logps_and_entropies(self, model, input_ids, attention_mask, logits_to_keep,
                                           batch_size=None, compute_entropy=False, compute_aux_loss=False, **kwargs):
@@ -147,9 +158,10 @@ def main():
     grpo = GRPOConfig(output_dir=str(output), max_steps=settings['steps'], learning_rate=settings['learning_rate'],
         per_device_train_batch_size=1, gradient_accumulation_steps=groups, generation_batch_size=groups,
         num_generations=groups, max_completion_length=settings['max_completion_tokens'], beta=0.0,
-        loss_type='grpo', temperature=1.0, top_k=0, top_p=1.0, use_vllm=False, use_cache=False, bf16=True,
+        temperature=1.0, top_k=0, top_p=1.0, use_vllm=False, use_cache=False, bf16=True,
         gradient_checkpointing=False, save_steps=settings['save_steps'], logging_steps=1, report_to='none',
-        seed=settings['seed'])
+        seed=settings['seed'], loss_type=settings['loss_type'], scale_rewards=settings['scale_rewards'],
+        mask_truncated_completions=settings['mask_truncated_completions'])
     passes_log = []
     callbacks = []
     if settings['variant'] == 'recurrent' and settings['recurrent'].get('max_passes', 1) > 1:

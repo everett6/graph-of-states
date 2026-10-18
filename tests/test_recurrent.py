@@ -5,7 +5,7 @@ from transformers import Gemma4ForCausalLM, Gemma4TextConfig
 import random
 
 from gos_recurrent import (RandomPasses, attach_recurrence, block_lora_targets, load_recurrence, pass_trace,
-                           recurrence_parameters, sample_passes, save_recurrence, scheduled_mean, set_passes,
+                           recurrence_parameters, sample_passes, set_step_scale, save_recurrence, scheduled_mean, set_passes,
                            text_model)
 
 
@@ -208,3 +208,29 @@ def test_pass_trace_through_peft_wrapper():
     model = lora_model(3)
     trace = pass_trace(model, torch.randint(3, 48, (1, 5)))
     assert len(trace) == 2 and all(value > 0 for value in trace)
+
+
+def test_step_scale_damps_extra_passes_only():
+    model = tiny()
+    ids = torch.randint(3, 48, (1, 6))
+    attach_recurrence(model, 2, 4, passes=1)
+    perturb(model)
+    one = logits(model, ids)
+    set_passes(model, 3)
+    full = logits(model, ids)
+    adapter = text_model(model).recurrence
+    gate = adapter.gate.detach().clone()
+    set_step_scale(model, 0.25)
+    damped = logits(model, ids)
+    assert not torch.allclose(damped, full) and not torch.allclose(damped, one)
+    with torch.no_grad():
+        adapter.gate.mul_(0.25)
+    set_step_scale(model, 1.0)
+    assert torch.allclose(logits(model, ids), damped, atol=1e-5)  # same as a quarter-size gate
+    with torch.no_grad():
+        adapter.gate.copy_(gate)
+    set_passes(model, 1)
+    set_step_scale(model, 0.25)
+    assert torch.allclose(logits(model, ids), one)  # pass 1 is untouched
+    with pytest.raises(ValueError):
+        set_step_scale(model, 0)

@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from rl_recurrent import PassSchedule, RecurrentGRPOTrainer, chunked_logps
@@ -38,7 +39,8 @@ def test_padded_batches_score_like_unpadded_rows():
     assert torch.allclose(logps[1], alone_b, atol=1e-5)
 
 
-def test_one_grpo_step_trains_the_recurrent_block(tmp_path):
+@pytest.mark.parametrize('mask_truncated', [False, True])
+def test_one_grpo_step_trains_the_recurrent_block(tmp_path, mask_truncated):
     from types import SimpleNamespace
     from datasets import IterableDataset
     from trl import GRPOConfig
@@ -52,7 +54,8 @@ def test_one_grpo_step_trains_the_recurrent_block(tmp_path):
     data = IterableDataset.from_generator(lambda: iter([{'prompt': 'user: a [EOS] assistant: ', 'answer': 'ok'}] * 4))
     args = GRPOConfig(output_dir=str(tmp_path), max_steps=1, per_device_train_batch_size=1, learning_rate=1e-2,
         gradient_accumulation_steps=2, generation_batch_size=2, num_generations=2, max_completion_length=4, beta=0.0,
-        report_to='none', use_cpu=True, bf16=False, use_vllm=False, save_strategy='no', use_cache=False)
+        report_to='none', use_cpu=True, bf16=False, use_vllm=False, save_strategy='no', use_cache=False,
+        loss_type='dapo', scale_rewards='none', mask_truncated_completions=mask_truncated)
     log = []
     trainer = RecurrentGRPOTrainer(model=model, args=args, train_dataset=data, processing_class=tok,
         reward_funcs=lambda completions, **k: [float(i % 2) for i in range(len(completions))],
@@ -60,7 +63,10 @@ def test_one_grpo_step_trains_the_recurrent_block(tmp_path):
     trainer.train()
     assert trainer.state.global_step == 1 and log and log[0]['passes'] in (1, 2)
     assert text_model(model).recurrence is not None
-    assert any(not torch.equal(p, q) for p, q in zip(recurrence_parameters(model), before))
+    changed = any(not torch.equal(p, q) for p, q in zip(recurrence_parameters(model), before))
+    # 4-token completions never reach EOS here, so masking truncation leaves nothing to learn from: the step
+    # must still complete (all-masked batches happen on hard problems) and leave the weights unchanged.
+    assert changed != mask_truncated
 
 
 def test_rl_can_continue_from_a_saved_sft_adapter(tmp_path):
