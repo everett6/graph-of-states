@@ -22,6 +22,7 @@ MATH-500 and miniF2F are older and are reported separately.
 | `data/train/math-train-v1.jsonl` | 6,795 | MATH train worked solutions whose own `\boxed{}` answer verifies. `math-train-640.jsonl` (6,129) fits 640 tokens. |
 | `data/train/code-train-v1.jsonl` | 587 | LCB v1–v4 problems released before 2025 (LeetCode functional, AtCoder/Codeforces stdin/stdout) with ≥3 hidden tests each (up to 64 KB of cases). No reference solutions: for RL and agent trajectory collection, not SFT. |
 | `data/train/lean/lean-workbook-v1.jsonl` | 22,661 | Goedel-Prover's Lean Workbook proofs re-checked on our Mathlib (default heartbeats, axiom audit), statements screened against miniF2F and MathOlympiadBench (3-gram Jaccard ≥ 0.5 dropped). |
+| `data/train/math-selfdistill-1024.jsonl` | queued | The frozen model's own verified solutions to 700 seeded MATH-train problems, ≤ 1024 tokens (`scripts/self_distill.py`). Used by the depth round. SFT on the human-written MATH-train solutions made the pilot's LoRA arm copy their terse style: held-out pass@1 fell from 52.8% to 15.2% (paired, n = 125, W/L 1/48). |
 | `data/train/agent/*.jsonl` | queued | Verified agent transcripts from the frozen model (code, MATH, Lean) for rejection-sampling SFT. |
 
 Rebuild:

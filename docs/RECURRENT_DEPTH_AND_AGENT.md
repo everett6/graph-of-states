@@ -50,6 +50,11 @@ Fixed-point reasoners (arXiv 2606.18206) reach depths beyond training by keeping
 windows of iterations, and halting once the relative residual drops below 0.1. They report gains on
 puzzles and state tracking, not language-model math, so it is a measurement target here, not a claim.
 
+`set_step_scale(model, s)` damps every extra pass's update at inference. "Right Direction, Wrong Step"
+(arXiv 2609.16665) finds that extra loop iterations often hurt by overshooting along a helpful direction, and
+that a fixed quarter step recovers most such failures. The depth round evaluates beyond-training pass counts both
+undamped and at 0.25 (`eval_passes` entry `[passes, 0.25]`).
+
 `pass_trace(model, ids)` reports each extra pass's relative state change, to see whether deep pass counts
 converge (shrinking) or diverge (growing). `configs/benchmark-depth-v2.json` compares, on identical rows:
 frozen, block LoRA p1, uniform 1–4 passes (evaluated at 1/4/8) and the curriculum recipe (mean 6, max 12,
