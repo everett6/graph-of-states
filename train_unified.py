@@ -17,6 +17,7 @@ from torch.nn import functional as F
 from transformers import TrainerCallback
 from trl import SFTConfig, SFTTrainer, GRPOConfig, GRPOTrainer
 
+from agent_rl import agent_rollout
 from gos_gemma import (attach_gos, assert_gos_only_trainable, frozen_features, inner_lm,
                        load_gos_adapter, save_gos_adapter, selected_logps)
 from unified_data import DEFAULT_SOURCES, UnifiedCollator, mixed_examples
@@ -30,6 +31,8 @@ class UnifiedConfig:
     sources: list[dict] = field(default_factory=lambda: [dict(source) for source in DEFAULT_SOURCES])
     # The default SFT recipe keeps 75% reasoning / 25% code feedback; verified-task RL mixes set this false.
     enforce_feedback_mix: bool = True
+    # >0: GRPO rollouts may call the Python sandbox this many times (agent_rl.agent_rollout).
+    agent_max_tools: int = 0
     max_seq_length: int = 4096
     max_prompt_tokens: int = 3072
     max_completion_tokens: int = 1024
@@ -106,6 +109,8 @@ class UnifiedConfig:
             raise ValueError('CPU activation offload requires DeepSpeed')
         if not all(math.isfinite(weight) and weight >= 0 for weight in (self.coherence_weight, self.tool_gate_weight)):
             raise ValueError('Auxiliary weights must be finite and nonnegative')
+        if type(self.agent_max_tools) is not int or not 0 <= self.agent_max_tools <= 8:
+            raise ValueError('agent_max_tools must be an integer in [0, 8]')
         return self
 
 
@@ -328,7 +333,7 @@ class EpochSeededStream:
     def __call__(self):
         yield from mixed_examples(self.config.sources, self.tokenizer, self.split, self.config.seed,
             self.mode, self.config.max_seq_length, self.config.overlap, self.config.max_prompt_tokens,
-            self.limit, self.allow_remote)
+            self.limit, self.allow_remote, agent_tools=self.config.agent_max_tools)
 
 
 def build_datasets(config, tokenizer, mode, allow_remote, include_train=True, split='validation'):
@@ -474,7 +479,8 @@ def run(config, stage, allow_remote_data=False, allow_model_download=False, adap
             generation_kwargs={'use_cache': False, 'logits_to_keep': 1}, log_completions=False)
         trainer = GoSGRPOTrainer(model=model, args=args, reward_funcs=load_reward(config.reward_function),
             train_dataset=train_data, eval_dataset=eval_data, processing_class=tokenizer,
-            callbacks=callbacks, optimizers=optimizers, rollout_func=sequential_rollout, gos_config=config)
+            callbacks=callbacks, optimizers=optimizers, gos_config=config,
+            rollout_func=agent_rollout if config.agent_max_tools else sequential_rollout)
     output.mkdir(parents=True, exist_ok=True)
     (output / 'unified_config.json').write_text(json.dumps(asdict(config), indent=2) + '\n')
     if stage != 'test':

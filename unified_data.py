@@ -237,8 +237,9 @@ def grpo_examples(messages, tokenizer, prompt_limit):
 
 
 def mixed_examples(sources, tokenizer, split, seed=17, mode='sft', max_seq_length=4096,
-                   overlap=256, prompt_limit=3072, limit=None, allow_remote=False, stats=None):
-    """Exact source ratios per schedule cycle; hash splits are 80/10/10 in expectation."""
+                   overlap=256, prompt_limit=3072, limit=None, allow_remote=False, stats=None, agent_tools=0):
+    """Exact source ratios per schedule cycle; hash splits are 80/10/10 in expectation.
+    agent_tools > 0 (GRPO only) appends the <run> tool instructions to each prompt-style task."""
     if split not in ('train', 'validation', 'test'):
         raise ValueError('Unknown split')
     stats = stats if stats is not None else Counter()
@@ -255,6 +256,9 @@ def mixed_examples(sources, tokenizer, split, seed=17, mode='sft', max_seq_lengt
                 if mode != 'sft' and row.get('task_spec') and not row.get('answer') and isinstance(row.get('prompt'), str):
                     # RL-only task (e.g. code with hidden tests): the verifier is the target, there is no reference.
                     row = {**row, 'answer': VERIFIER_ONLY}
+                if mode != 'sft' and agent_tools and isinstance(row.get('prompt'), str):
+                    from agent_loop import AGENT_INSTRUCTIONS
+                    row = {**row, 'prompt': row['prompt'] + AGENT_INSTRUCTIONS.format(tools=agent_tools)}
                 messages = normalize_row(row)
                 key = task_key(messages)
                 if task_split(key, seed) != split:

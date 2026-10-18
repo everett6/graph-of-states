@@ -281,11 +281,12 @@ def _spec(value):
     return None if value is None else {key:item for key,item in value.items() if item is not None}
 
 
-def grpo_verified_reward(completions, answer=None, task_spec=None, **kwargs):
+def grpo_verified_reward(completions, answer=None, task_spec=None, agent_final=None, **kwargs):
     """GRPO reward: task_spec verifier when present, else SymPy check of the reference's
     \\boxed{} answer, else exact final-text match (the old baseline). Fails loudly when a
     configured verifier is unavailable."""
     from symbolic_math import boxed
+    completions=agent_final if agent_final is not None else completions  # agentic rollouts: grade the final turn
     answers=answer if answer is not None else [None]*len(completions)
     specs=task_spec if task_spec is not None else [None]*len(completions)
     if not len(completions)==len(answers)==len(specs): raise ValueError('Task/reward batch mismatch')
@@ -309,19 +310,21 @@ def grpo_verified_reward(completions, answer=None, task_spec=None, **kwargs):
     return rewards
 
 
-def random_control_reward(completions, **kwargs):
+def random_control_reward(completions, agent_final=None, **kwargs):
     """Control: a fair coin keyed on the completion text, independent of correctness.
     A GRPO gain under this reward is not evidence that correctness feedback helped."""
     import hashlib
+    completions=agent_final if agent_final is not None else completions
     return [float(hashlib.sha256(('gos-random-control-v1:'+final_text(text)).encode()).digest()[0]&1)
             for text in completions]
 
 
-def format_only_reward(completions, answer=None, task_spec=None, **kwargs):
+def format_only_reward(completions, answer=None, task_spec=None, agent_final=None, **kwargs):
     """Control: 1 when the answer is in checkable form (parseable \\boxed{} for math, a Python block that
     parses for code, a nonempty ```lean block without banned constructs), regardless of correctness."""
     from docker_code_reward import extract_code
     from symbolic_math import Unsupported, boxed, parse_answer
+    completions=agent_final if agent_final is not None else completions
     answers=answer if answer is not None else [None]*len(completions)
     specs=task_spec if task_spec is not None else [None]*len(completions)
     rewards=[]

@@ -47,6 +47,15 @@ def lean_executor(spec):
     return execute
 
 
+def tool_message(outcome, remaining):
+    """The user turn that returns a tool result to the model."""
+    feedback = (outcome['stdout'] + ('\n' + outcome['stderr'] if outcome['stderr'].strip() else '')).strip()
+    if outcome['timed_out']:
+        feedback = 'TimeoutError: the check ran out of time'
+    return f'Output:\n{feedback[:OUTPUT_LIMIT] or "(no output)"}\n\n' + (
+        f'You have {remaining} run(s) left.' if remaining else 'No runs left: give your final answer now.')
+
+
 def run_agent(prompt, generate, max_tools=3, executor=None, kind='python'):
     """generate(messages, sample) -> (text, tokens). Returns the final text and the full transcript.
     kind='python' runs <run> code; kind='lean' checks <lean> proofs (executor from lean_executor)."""
@@ -63,13 +72,8 @@ def run_agent(prompt, generate, max_tools=3, executor=None, kind='python'):
         if code is None:
             return {'final': text, 'messages': messages, 'tokens': tokens, 'tool_calls': calls}
         outcome = executor(code, timeout=120 if kind == 'lean' else 10, output_limit=OUTPUT_LIMIT)
-        feedback = (outcome['stdout'] + ('\n' + outcome['stderr'] if outcome['stderr'].strip() else '')).strip()
-        if outcome['timed_out']:
-            feedback = 'TimeoutError: the check ran out of time'
         calls.append({'success': outcome['success'], 'timed_out': outcome['timed_out']})
-        remaining = max_tools - turn - 1
-        messages.append({'role': 'user', 'content': f'Output:\n{feedback[:OUTPUT_LIMIT] or "(no output)"}\n\n' + (
-            f'You have {remaining} run(s) left.' if remaining else 'No runs left: give your final answer now.')})
+        messages.append({'role': 'user', 'content': tool_message(outcome, max_tools - turn - 1)})
     return {'final': messages[-1]['content'], 'messages': messages, 'tokens': tokens, 'tool_calls': calls}
 
 
