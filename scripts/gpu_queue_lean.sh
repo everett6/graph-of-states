@@ -8,7 +8,7 @@ PY=.venv-training/bin/python
 GOEDEL=$(ls -d ~/.cache/huggingface/hub/models--Goedel-LM--Goedel-Prover-V2-8B/snapshots/*/ | head -1)
 GEMMA=/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2
 log() { echo "$(date -Is) $*" | tee -a runs/queue/status.log; }
-while pgrep -f gpu_queue.sh | grep -qv $$ || pgrep -f measure_headroom.py >/dev/null; do sleep 300; done
+while pgrep -f gpu_queue.sh | grep -qv $$ || pgrep -f measure_headroom.py >/dev/null || pgrep -f "benchmark_gos.py --config" >/dev/null; do sleep 300; done
 mkdir -p runs/queue data/train/agent
 log "lean queue start"
 common="--eval data/lean/minif2f-test.jsonl --max-tools 2 --n 2 --temperature 0.7"
