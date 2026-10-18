@@ -2,7 +2,8 @@
 
 Each row's prompt matches the evaluation prompt format (scripts/build_lean_tasks.py) and its answer is the
 dataset proof in one ```lean block. Proofs are re-checked here (default heartbeats, axiom audit) with batched
-Lean runs; rows whose statement is a near-duplicate (3-gram Jaccard) of an evaluation statement are dropped.
+Lean runs; rows that are near-duplicates (3-gram Jaccard of the anonymized statement, its goal, or the informal
+statement) of an evaluation problem are dropped.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -35,9 +36,35 @@ def split_proof(full_proof):
     return statement, opens or DEFAULT_OPENS, proof, re.sub(r'\s+', ' ', informal).strip()
 
 
-def body_shingles(statement):
-    head = re.sub(r'^\s*(theorem|lemma)\s+\S+', '', statement.strip())
-    return shingles(canonical(head))
+def screen_signature(statement, informal=''):
+    """3-gram sets of the statement with binder/hypothesis names removed, of its goal (text after the last
+    top-level ':'), and of the informal statement. Renamed hypotheses (`hx` vs `h₀`) and reordered
+    binders no longer hide a duplicate (IMO 1964 P2 is in Lean Workbook under other names)."""
+    body = re.sub(r':=\s*(by)?\s*(sorry)?\s*$', '', re.sub(r'^\s*(theorem|lemma)\s+\S+', '', statement.strip()))
+    depth, cut = 0, -1
+    for index, char in enumerate(body):
+        depth += char in '([{⟨' and 1 or (char in ')]}⟩' and -1 or 0)
+        if char == ':' and depth == 0 and body[index + 1:index + 2] != '=':
+            cut = index
+    goal = body[cut + 1:] if cut >= 0 else body
+    anonymous = re.sub(r'([(\[{])[^():\[\]{}]*?:', r'\1:', body)
+    return {'body': shingles(canonical(anonymous)), 'goal': shingles(canonical(goal)),
+            'informal': shingles(canonical(informal)) if informal.strip() else set()}
+
+
+def jaccard(a, b):
+    return len(a & b) / max(1, len(a | b))
+
+
+def near_duplicate(a, b, threshold):
+    return (jaccard(a['body'], b['body']) >= threshold
+            or (len(a['goal']) >= 6 and jaccard(a['goal'], b['goal']) >= max(threshold, 0.6))
+            or (len(a['informal']) >= 8 and jaccard(a['informal'], b['informal']) >= max(threshold, 0.6)))
+
+
+def informal_from_prompt(prompt):
+    match = re.search(r'Informal statement: (.*?)\n\nReply with', prompt, re.S)
+    return match.group(1) if match else ''
 
 
 def main():
@@ -49,6 +76,8 @@ def main():
     parser.add_argument('--limit', type=int, help='Random subset size (seeded) before checking')
     parser.add_argument('--batch', type=int, default=32)
     parser.add_argument('--workers', type=int, default=2, help='Parallel Lean processes (~7 GB RAM each)')
+    parser.add_argument('--resume', action='store_true',
+                        help='Reuse rows already checked into --output (they are re-screened, not re-proved)')
     args = parser.parse_args()
     stats = Counter()
     evaluation = []
@@ -56,7 +85,7 @@ def main():
         for line in Path(path).read_text().splitlines():
             spec = json.loads(json.loads(line)['task_spec']) if line.strip() else None
             if spec and spec.get('kind') == 'lean':
-                evaluation.append(body_shingles(spec['statement']))
+                evaluation.append(screen_signature(spec['statement'], informal_from_prompt(json.loads(line)['prompt'])))
     rows = pq.read_table(args.input).to_pylist()
     random.Random(17).shuffle(rows)
     candidates = []
@@ -65,13 +94,20 @@ def main():
         if parsed is None:
             stats['dropped_unparsed'] += 1
             continue
-        grams = body_shingles(parsed[0])
-        if any(len(grams & other) / max(1, len(grams | other)) >= args.threshold for other in evaluation):
+        signature = screen_signature(parsed[0], parsed[3])
+        if any(near_duplicate(signature, other, args.threshold) for other in evaluation):
             stats['dropped_near_duplicate'] += 1
             continue
         candidates.append((row['problem_id'], *parsed))
         if args.limit and len(candidates) >= args.limit:
             break
+    output = Path(args.output)
+    previous = {}
+    if args.resume and output.exists():
+        previous = {json.loads(line)['id']: line for line in output.read_text().splitlines() if line.strip()}
+    reused = [previous[f'lean_workbook/{item[0]}'] for item in candidates if f'lean_workbook/{item[0]}' in previous]
+    candidates = [item for item in candidates if f'lean_workbook/{item[0]}' not in previous]
+    stats['kept_reused'] = len(reused)
     groups = {}
     for item in candidates:
         groups.setdefault(item[2], []).append(item)
@@ -82,8 +118,8 @@ def main():
         return batch, check_proofs([item[1] for item in batch], [COMMENT.sub('', item[3]) for item in batch],
                                    batch[0][2], confirm=False)
 
-    output = Path(args.output)
     with output.open('w') as handle, ThreadPoolExecutor(args.workers) as pool:
+        handle.writelines(line + '\n' for line in reused)
         for done, (batch, results) in enumerate(pool.map(check, batches), 1):
             for (problem_id, statement, opens, proof, informal), result in zip(batch, results):
                 stats['kept' if result['correct'] else 'dropped_' + result['reason'].split(':')[0]] += 1

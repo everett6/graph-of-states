@@ -166,7 +166,12 @@ def reference_prompts(paths):
 def jaccard_flags(rows, against, threshold):
     """Max 3-gram Jaccard of each row's problem text vs. reference prompts and earlier rows."""
     def problem_text(text):
-        return text.split(MATH_SUFFIX)[0].split('\n\nStarter code:')[0]
+        # Compare problems, not shared instructions: strip answer-format suffixes, the Lean prompt
+        # template and agent tool instructions (they inflate Jaccard between unrelated tasks).
+        for marker in (MATH_SUFFIX, '\n\nStarter code:', STDIO_SUFFIX, '\n\nReply with the tactic proof',
+                       '\n\nYou can run Python 3', '\n\nYou can check a proof attempt'):
+            text = text.split(marker)[0]
+        return text.replace('Prove the following theorem in Lean 4 with Mathlib.', '')
     inverted, signatures = {}, []
     for text in against:
         signature = shingles(problem_text(text))

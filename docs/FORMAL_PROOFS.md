@@ -42,7 +42,9 @@ Statements that do not elaborate on this Mathlib are dropped and counted (`scrip
 
 `scripts/build_lean_train.py` re-checks Goedel-Prover's 29.7k Lean Workbook proofs on this Mathlib (default
 heartbeats, axiom audit; ~20% fail, mostly renamed lemmas such as `div_le_iff` and heartbeat limits) and drops
-statements that are near-duplicates of miniF2F or MathOlympiadBench. Rows use the evaluation prompt format,
+statements that are near-duplicates of miniF2F or MathOlympiadBench (anonymized statement, goal or informal
+statement; this catches renamed twins such as IMO 1964 P2, which Lean Workbook contains three times). Rows use
+the evaluation prompt format,
 so they serve as SFT targets and as RL / agent-collection tasks.
 
 ## Queued runs (`scripts/gpu_queue_lean.sh`)

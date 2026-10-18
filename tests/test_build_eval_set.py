@@ -73,3 +73,23 @@ def test_private_tests_decode_safely_and_respect_window(tmp_path):
     built = list(livecodebench_rows(source, stats))
     assert [row['id'] for row in built] == ['t/in'] and stats['skipped_t'] == 1
     assert built[0]['meta'] == {**built[0]['meta'], 'public_tests': 1, 'private_tests_used': 3}
+
+
+def test_leak_screen_ignores_shared_templates_but_catches_renamed_twins():
+    import sys
+    from pathlib import Path
+    from build_eval_set import jaccard_flags
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
+    from build_lean_tasks import PROMPT
+    from build_lean_train import near_duplicate, screen_signature
+    rows = [{'prompt': PROMPT.format(statement='theorem a : 54 % 6 = 0 := by', informal='Find 54 mod 6.')}]
+    jaccard_flags(rows, [PROMPT.format(statement='theorem b : 0 - 0 = 0 := sorry', informal='Evaluate 0 - 0.')], 0.5)
+    assert not rows[0]['contamination']['flagged']
+    imo = ('theorem imo_1964_p2 (a b c : ℝ) (h₀ : 0 < a ∧ 0 < b ∧ 0 < c) (h₁ : c < a + b) (h₂ : b < a + c)\n'
+           '    (h₃ : a < b + c) :\n    a ^ 2 * (b + c - a) + b ^ 2 * (c + a - b) + c ^ 2 * (a + b - c) ≤ 3 * a * b * c := by')
+    twin = ('theorem lean_workbook_plus_17090 (a b c : ℝ) (hx: a > 0 ∧ b > 0 ∧ c > 0) (hab : a + b > c) '
+            '(hbc : b + c > a) (hca : a + c > b) : a^2 * (b + c - a) + b^2 * (c + a - b) + c^2 * (a + b - c) ≤ 3 * a * b * c'
+            '   := sorry')
+    assert near_duplicate(screen_signature(twin), screen_signature(imo), 0.5)
+    assert not near_duplicate(screen_signature('theorem x : 0 - 0 = 0 := sorry'),
+                              screen_signature('theorem y : 54 % 6 = 0 := sorry'), 0.5)
