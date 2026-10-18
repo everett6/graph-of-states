@@ -25,10 +25,10 @@
   "lora_rank": 8,
   "lora_learning_rate": 0.0002,
   "heldout_tasks": [
-    "data/eval/heldout-v1.jsonl"
+    "data/eval/heldout-v2.jsonl"
   ],
   "heldout_samples": 4,
-  "heldout_max_new_tokens": 768,
+  "heldout_max_new_tokens": 2048,
   "heldout_temperature": 0.7,
   "heldout_batch": 4,
   "heldout_repair": true,
@@ -88,5 +88,7 @@
         }
       }
     }
-  ]
+  ],
+  "heldout_context": 4096,
+  "description": "Uses held-out v2 (v1 had 8 MATH-500 rows near-duplicate to MATH-train prompts, which trip the leak guard at 80 rows). 2048 new tokens: the headroom pass truncated most contest answers at 2048, so 768 was far too short."
 }
