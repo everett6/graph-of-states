@@ -63,6 +63,7 @@ class _TokenGraphBody(nn.Module):
         steps = torch.zeros(len(anchor), dtype=torch.long, device=anchor.device)
         risk = state.new_zeros(state.shape[:2])
         semantic_risk = operational_risk = risk
+        round_features = []
         for index in range(self.rounds):
             previous = state
             evidence = anchor[:, None]
@@ -94,6 +95,8 @@ class _TokenGraphBody(nn.Module):
                 options.get('temperature_floor', 0.5))
             temperature = temperature.to(anchor.dtype)
             entropy = torch.where(active, next_entropy.to(entropy.dtype), entropy)
+            if diagnostics and options.get('deep_supervision', False):
+                round_features.append(torch.tanh(self.fuse(torch.cat((state.mean(1), state.var(1, unbiased=False)), -1))))
             if options.get('thermal', False) and index + 1 >= options.get('min_rounds', 2):
                 converged = (change <= options.get('entropy_tolerance', 0.01)) & (motion <= options.get('motion_tolerance', 0.01))
                 active = active & ~converged
@@ -106,7 +109,7 @@ class _TokenGraphBody(nn.Module):
             return features, risk.mean(-1), {'rounds': steps, 'entropy': entropy,
                 'temperature': temperature, 'latent_slots': memory.shape[1],
                 'semantic_risk': semantic_risk.mean(-1), 'operational_risk': operational_risk.mean(-1),
-                'coherence_loss': coherence_loss,
+                'coherence_loss': coherence_loss, 'round_features': round_features,
                 'tool_logits': self.actuator(features).squeeze(-1) if self.actuator is not None else None}
         return features, risk.mean(-1)
 
@@ -432,3 +435,43 @@ def selected_logps(model, hidden, targets, chunk_size=32, temperature=1.0, entro
         logps.append(values[0])
         entropies.append(values[1])
     return torch.cat(logps), torch.cat(entropies)
+
+
+def deep_supervised_logps(model, hidden, targets, chunk_size=32):
+    """Per-pass target log-probabilities [passes, tokens] (deep supervision, as in TRM/LOTUS).
+
+    Every executed pass is decoded through the same lora_B and frozen LM head; the last pass
+    equals the adapter's normal output. Requires graph_enhancements.deep_supervision."""
+    lm = inner_lm(model)
+    layer = lm.get_output_embeddings()
+    if not isinstance(layer, GoSReasoningLayer):
+        raise ValueError('deep supervision needs a GoS adapter on the LM head')
+    name = layer.active_adapters[0]
+    graph = layer.lora_A[name]
+    if not graph._body.enhancements.get('deep_supervision', False):
+        raise ValueError('Enable graph_enhancements.deep_supervision')
+    config = lm.config.get_text_config()
+    softcap = getattr(config, 'final_logit_softcapping', None)
+    scale = getattr(config, 'logit_scale', None)
+    scale = getattr(config, 'output_multiplier', 1.0) if scale is None else scale
+    scale = 1.0 if scale is None else scale
+
+    def project(features, labels):
+        flat = features.detach()
+        rounds = graph.features_and_risk(flat, diagnostics=True)[2]['round_features']
+        values = []
+        for state in rounds:
+            logits = layer.base_layer(flat + layer.lora_B[name](state).to(flat.dtype)) * scale
+            if softcap:
+                logits = softcap * torch.tanh(logits / softcap)
+            values.append(F.log_softmax(logits.float(), -1).gather(-1, labels[:, None]).squeeze(-1))
+        return torch.stack(values)
+
+    from torch.utils.checkpoint import checkpoint
+    pieces = []
+    for start in range(0, len(targets), chunk_size):
+        arguments = (hidden[start:start + chunk_size], targets[start:start + chunk_size])
+        pieces.append(checkpoint(project, *arguments, use_reentrant=False) if torch.is_grad_enabled()
+                      else project(*arguments))
+    passes = min(piece.shape[0] for piece in pieces)  # thermal stopping may differ per chunk
+    return torch.cat([piece[-passes:] for piece in pieces], 1)

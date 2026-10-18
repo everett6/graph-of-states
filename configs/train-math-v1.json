@@ -1,0 +1,6 @@
+{
+  "description": "Verified MATH train-split worked solutions (disjoint from MATH-500, which is drawn from the test split). Screen against the held-out eval with --against.",
+  "sources": [
+    {"name": "math_train", "adapter": "math_solution", "path": "data/train/math_train_*.parquet", "min_level": 1, "max_level": 5, "cutoff_status": "pre_cutoff"}
+  ]
+}

@@ -13,8 +13,8 @@ import time
 from eval_search import extracted_answer, read_jsonl, summarize
 from verified_rewards import verify
 
-REPAIR_PROMPT = ('Your solution failed the provided unit tests. Find the bug and return the complete '
-                 'corrected solution in one ```python block.')
+REPAIR_PROMPT = ('Your solution failed the provided unit tests.\nVerifier feedback: {feedback}\n'
+                 'Find the bug and return the complete corrected solution in one ```python block.')
 
 
 def evaluate_row(row, generate, n, repair=True, verifier=verify):
@@ -32,9 +32,10 @@ def evaluate_row(row, generate, n, repair=True, verifier=verify):
     record = {key: row.get(key) for key in ('id', 'source', 'cutoff_status')}
     record.update(kind=spec['kind'], samples=samples)
     if repair and spec['kind'] == 'coding' and not any(sample['correct'] for sample in samples):
-        failed = samples[0]['text']
-        (text, tokens), = generate(messages + [{'role': 'assistant', 'content': failed},
-                                               {'role': 'user', 'content': REPAIR_PROMPT}], 1, False)
+        failed = samples[0]
+        prompt = REPAIR_PROMPT.format(feedback=failed['reason'].split(': ', 1)[-1][:1000])
+        (text, tokens), = generate(messages + [{'role': 'assistant', 'content': failed['text']},
+                                               {'role': 'user', 'content': prompt}], 1, False)
         verdict = verifier(text, spec)
         record['repair'] = {'text': text, 'tokens': tokens, 'correct': verdict.correct, 'reason': verdict.reason}
     record['seconds'] = time.perf_counter() - start

@@ -2,38 +2,51 @@
   "format_version": 1,
   "base_path": "/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2",
   "seed": 17,
-  "steps": 8,
-  "sequence_length": 192,
-  "width": 32,
+  "steps": 400,
+  "sequence_length": 640,
+  "width": 128,
   "learning_rate": 0.0002,
-  "eval_per_kind": 100,
-  "max_new_tokens": 32,
+  "eval_per_kind": 10,
+  "max_new_tokens": 512,
   "profile_new_tokens": 4,
   "logit_chunk": 4,
   "depths": [
     1,
-    2,
     4
   ],
   "rows_per_source": 8,
-  "validation_rows": 1,
-  "local_data": [
-    "/home/everett/Gemma 4 12B Distill/data/short-context-1024-v3/fable/train.jsonl",
-    "/home/everett/Gemma 4 12B Distill/data/short-context-1024-v3/fable/validation.jsonl"
-  ],
+  "validation_rows": 8,
+  "local_data": [],
   "near_duplicate_threshold": 0.8,
-  "measure_eviction_quality": true,
+  "measure_eviction_quality": false,
   "cache_quality_tokens": 16,
   "ablations": [],
   "lora_targets": "all-linear",
   "lora_rank": 8,
-  "lora_learning_rate": 0.002,
+  "lora_learning_rate": 0.0002,
   "heldout_tasks": [
     "data/eval/heldout-v1.jsonl"
   ],
   "heldout_samples": 4,
-  "heldout_max_new_tokens": 1024,
+  "heldout_max_new_tokens": 768,
   "heldout_temperature": 0.7,
   "heldout_batch": 4,
-  "heldout_repair": true
+  "heldout_repair": true,
+  "synthetic_tasks": false,
+  "verified_tasks": [
+    "data/train/math-train-640.jsonl"
+  ],
+  "heldout_per_source": {
+    "math500_l45": 80
+  },
+  "extra_gos": [
+    {
+      "name": "gos-deep-supervision-d4",
+      "depth": 4,
+      "enhancements": {
+        "deep_supervision": true,
+        "thermal": false
+      }
+    }
+  ]
 }

@@ -188,7 +188,7 @@ def structured_reward(completion, expected, schema=None):
 
 def coding_reward(completion, spec):
     if spec.get('verifier','docker') not in ('docker','restricted_python'): raise ValueError('Unknown code verifier')
-    from docker_code_reward import extract_code,code_test_reward
+    from docker_code_reward import extract_code,code_test_details
     code=extract_code(final_text(completion))
     if spec.get('verifier','docker')=='restricted_python':
         try:
@@ -211,8 +211,8 @@ def coding_reward(completion, spec):
         except (ValueError,SyntaxError,KeyError,TypeError,ZeroDivisionError,IndexError,OverflowError,RecursionError):
             return Verdict(True,False,'restricted_python_rejection')
     try:
-        reward=code_test_reward([code],tests=[spec['tests']])[0]
-        return Verdict(True,bool(reward),'container_tests')
+        (passed,feedback),=code_test_details([code],tests=[spec['tests']])
+        return Verdict(True,passed,'container_tests' if passed else 'container_test_failure: '+feedback)
     except (RuntimeError,PermissionError) as error:
         return Verdict(False,False,'verifier_unavailable: '+str(error))
 

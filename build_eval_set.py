@@ -44,6 +44,28 @@ def math_rows(source, stats):
                'meta': {key: row[key] for key in ('level', 'subject') if key in row}}
 
 
+def math_solution_rows(source, stats):
+    """Training rows from worked solutions: target text = solution, checked answer = its last \\boxed{}."""
+    from symbolic_math import boxed
+    from verified_rewards import verify
+    for path in sorted(Path().glob(source['path'])) if any(c in source['path'] for c in '*?[') else [source['path']]:
+        for index, row in enumerate(read_rows(path)):
+            level = int(str(row.get('level', '0')).split()[-1]) if str(row.get('level', '')).split()[-1:] != ['?'] else 0
+            if level < source.get('min_level', 0) or level > source.get('max_level', 5):
+                stats[f"skipped_level_{source['name']}"] += 1
+                continue
+            solution, answer = row['solution'].strip(), boxed(row['solution'])
+            spec = {'kind': 'math', 'expected': answer}
+            try:
+                if answer is None or not verify(solution, spec).correct:
+                    raise Unsupported('Solution does not verify against its own boxed answer')
+            except (Unsupported, SyntaxError, TypeError, ValueError, ZeroDivisionError):
+                stats[f"dropped_uncheckable_{source['name']}"] += 1
+                continue
+            yield {'id': f"{source['name']}/{Path(path).stem}/{index}", 'prompt': row['problem'].strip() + MATH_SUFFIX,
+                   'answer': solution, 'task_spec': spec, 'meta': {'level': level, 'type': row.get('type')}}
+
+
 def leetcode_tests(func_name, cases):
     """Assertion script for docker_code_reward: args are newline-separated JSON values."""
     pairs = [[case['input'], case['output']] for case in cases]
@@ -51,7 +73,9 @@ def leetcode_tests(func_name, cases):
             f'_cases = json.loads({json.dumps(json.dumps(pairs))})\n'
             'for _args_text, _expected_text in _cases:\n'
             "    _args = [json.loads(line) for line in _args_text.split('\\n') if line.strip()]\n"
-            f'    assert Solution().{func_name}(*_args) == json.loads(_expected_text)\n')
+            '    _expected = json.loads(_expected_text)\n'
+            f'    _got = Solution().{func_name}(*_args)\n'
+            "    assert _got == _expected, f'input {_args_text!r}: expected {_expected!r}, got {_got!r}'[:400]\n")
 
 
 def livecodebench_rows(source, stats):
@@ -74,7 +98,7 @@ def livecodebench_rows(source, stats):
                         'platform': row.get('platform'), 'public_tests': len(cases), 'private_tests_used': False}}
 
 
-ADAPTERS = {'math': math_rows, 'livecodebench': livecodebench_rows}
+ADAPTERS = {'math': math_rows, 'math_solution': math_solution_rows, 'livecodebench': livecodebench_rows}
 
 
 def reference_prompts(paths):
@@ -90,16 +114,17 @@ def reference_prompts(paths):
 
 def jaccard_flags(rows, against, threshold):
     """Max 3-gram Jaccard of each row's problem text vs. reference prompts and earlier rows."""
+    def problem_text(text):
+        return text.split(MATH_SUFFIX)[0].split('\n\nStarter code:')[0]
     inverted, signatures = {}, []
     for text in against:
-        signature = shingles(text)
+        signature = shingles(problem_text(text))
         signatures.append(signature)
         for item in signature:
             inverted.setdefault(item, []).append(len(signatures) - 1)
     external = len(signatures)
     for row in rows:
-        problem = row['prompt'].split(MATH_SUFFIX)[0].split('\n\nStarter code:')[0]
-        signature = shingles(problem)
+        signature = shingles(problem_text(row['prompt']))
         best, internal = 0.0, False
         for other in {index for item in signature for index in inverted.get(item, ())}:
             score = len(signature & signatures[other]) / len(signature | signatures[other])

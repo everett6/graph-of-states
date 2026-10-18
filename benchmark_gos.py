@@ -73,6 +73,13 @@ def make_dataset(config,tokenizer):
     return payload,audit
 
 
+def deep_supervision(model):
+    from gos_gemma import GoSReasoningLayer
+    layer=inner_lm(model).get_output_embeddings()
+    return isinstance(layer,GoSReasoningLayer) and torch.is_grad_enabled() and \
+        layer.lora_A[layer.active_adapters[0]]._body.enhancements.get('deep_supervision',False)
+
+
 def loss_for(model,row,variant,chunk=8):
     device=next(model.parameters()).device
     ids=torch.tensor([row['input_ids']],device=device);mask=torch.ones_like(ids)
@@ -85,6 +92,11 @@ def loss_for(model,row,variant,chunk=8):
         lm.base_model.eval()
         with torch.no_grad(): hidden=lm.base_model(input_ids=ids,attention_mask=mask,use_cache=False,return_dict=True).last_hidden_state
     hidden=hidden[0,:-1][valid];targets=targets[valid]
+    if variant=='gos' and deep_supervision(model):
+        from gos_gemma import deep_supervised_logps
+        per_pass=deep_supervised_logps(model,hidden,targets,chunk)
+        # Mean over passes of each pass's NLL; the final pass is the adapter's real output.
+        return -per_pass.mean(),int(valid.sum()),len(row['input_ids'])
     if variant=='gos': logps,_=selected_logps(model,hidden,targets,chunk)
     else:
         head=lm.get_output_embeddings();cap=getattr(lm.config,'final_logit_softcapping',None)
@@ -149,7 +161,13 @@ def heldout_evaluation(model,tokenizer,config,train,output):
     from best_of_n import evaluate_row,hf_generator
     from build_eval_set import jaccard_flags
     from eval_search import read_jsonl,summarize
-    rows=[row for path in config['heldout_tasks'] for row in read_jsonl(path)][:config.get('heldout_limit')]
+    rows=[row for path in config['heldout_tasks'] for row in read_jsonl(path)]
+    caps=config.get('heldout_per_source',{})  # deterministic file-order caps; never chosen by outcomes
+    counts={}
+    def keep(row):
+        counts[row['source']]=counts.get(row['source'],0)+1
+        return counts[row['source']]<=caps.get(row['source'],len(rows))
+    rows=[row for row in rows if keep(row)][:config.get('heldout_limit')]
     probe=[{'prompt':row['prompt']} for row in rows]
     jaccard_flags(probe,[r['prompt'] for r in train],config.get('heldout_leak_threshold',0.5))
     leaks=[row['id'] for row,item in zip(rows,probe) if item['contamination']['flagged'] and item['contamination']['match']=='reference']
@@ -288,6 +306,14 @@ def main():
         with (output/f'gos-without-{ablation}.log').open('w') as log:
             subprocess.run([sys.executable,__file__,'--config',str(filename),'--output',str(directory),
                 '--worker','gos','--depth',str(config['depths'][-1])],stdout=log,stderr=subprocess.STDOUT,check=True)
+        reports.append(json.loads((directory/'report.json').read_text()))
+    for extra in config.get('extra_gos',[]):
+        changed=dict(config);changed['enhancements']=config.get('enhancements',{})|extra['enhancements'];changed['ablations']=[];changed['extra_gos']=[]
+        filename=output/f"config-{extra['name']}.json";write(filename,changed)
+        directory=output/extra['name']
+        with (output/f"{extra['name']}.log").open('w') as log:
+            subprocess.run([sys.executable,__file__,'--config',str(filename),'--output',str(directory),
+                '--worker','gos','--depth',str(extra.get('depth',config['depths'][-1]))],stdout=log,stderr=subprocess.STDOUT,check=True)
         reports.append(json.loads((directory/'report.json').read_text()))
     write(output/'comparison.json',{'format_version':1,'configuration_sha256':digest(config),'experiments':reports})
 

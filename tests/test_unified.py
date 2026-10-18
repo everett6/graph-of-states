@@ -266,14 +266,38 @@ def test_verified_reward_range():
 
 
 def test_code_verifier_never_pulls_or_runs_on_host(monkeypatch):
+    import io
+    import json as json_module
     import types
     import docker_code_reward as verifier
     calls = []
     monkeypatch.setattr(verifier.shutil, 'which', lambda name: '/usr/bin/docker')
+    monkeypatch.setenv('LRR_CODE_SANDBOX', 'docker')
     def docker_mock(command, **kwargs):
         calls.append(command)
-        return types.SimpleNamespace(returncode=42 if command[1] == 'run' else 0)
+        return types.SimpleNamespace(returncode=0)
+    class FakeProcess:
+        def __init__(self, command, **kwargs):
+            calls.append(command)
+            self.stdin = self
+            self.buffer = b''
+            self.returncode = 42
+        def write(self, data):
+            self.buffer += data
+        def close(self):
+            nonce = json_module.loads(self.buffer)['nonce']
+            self.stdout = io.BytesIO(('PASS ' + nonce).encode())
+            self.stdin = io.BytesIO()
+        def wait(self, timeout=None):
+            return self.returncode
+        def kill(self):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
     monkeypatch.setattr(verifier.subprocess, 'run', docker_mock)
+    monkeypatch.setattr(verifier.subprocess, 'Popen', FakeProcess)
     assert verifier.code_test_reward(['```python\ndef add(a,b): return a+b\n```'],
                                     tests=['assert add(1,2) == 3']) == [1.0]
     command = next(command for command in calls if command[1] == 'run')
@@ -281,3 +305,20 @@ def test_code_verifier_never_pulls_or_runs_on_host(monkeypatch):
     assert not any(part in ('-v', '--volume', '--privileged') for part in command)
     with pytest.raises(ValueError, match='tests string'):
         verifier.code_test_reward(['anything'], tests=[None])
+
+
+@pytest.mark.skipif(not __import__('shutil').which('bwrap'), reason='bubblewrap not installed')
+def test_bwrap_sandbox_reports_failures_and_rejects_forged_passes(monkeypatch):
+    import subprocess
+    import docker_code_reward as verifier
+    probe = subprocess.run(verifier.BWRAP + ['/usr/bin/python3', '-c', 'pass'], capture_output=True)
+    if probe.returncode:
+        pytest.skip('unprivileged user namespaces unavailable here')
+    monkeypatch.setenv('LRR_CODE_SANDBOX', 'bwrap')
+    tests = 'assert f(2) == 4, "f(2) wrong"'
+    results = verifier.code_test_details(['def f(x): return 2*x', 'def f(x): return x', 'import os\nos._exit(42)',
+                                          'open("/etc/passwd").read()\ndef f(x): return 2*x'], [tests] * 4)
+    assert results[0] == (True, '')
+    assert not results[1][0] and 'f(2) wrong' in results[1][1]
+    assert not results[2][0]
+    assert not results[3][0] and 'FileNotFoundError' in results[3][1]
