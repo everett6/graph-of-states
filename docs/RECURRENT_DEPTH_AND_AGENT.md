@@ -39,6 +39,20 @@ are comparable. `--collect` writes verified successful transcripts; the benchmar
 turn at a time, conditioned on exactly the context the model saw (Gemma's live prompt differs from its
 rendered history). This is rejection-sampling fine-tuning on the model's own verified tool use.
 
+## Agentic RL (`agent_rl.py`)
+
+With `agent_max_tools > 0`, GRPO rollouts use the same `<run>` protocol: generation stops at `</run>`, the
+code runs in the sandbox, and the result is spliced in as a user turn rendered by the model's own chat
+template. Those tool-result tokens get `env_mask` 0, so TRL leaves them out of the policy loss; the model is
+trained only on tokens it produced. Rewards grade `agent_final` (the last assistant turn), so text printed
+by a program cannot be graded as the answer. Configs: `configs/gemma5070-grpo-agent.json` (MATH + LCB train,
+3 runs, 2,048 completion tokens) and its random-reward control. Plain verified GRPO (no tools) is
+`gemma5070-grpo-verified{,-random-control,-format-control}.json` over MATH, LCB and Lean Workbook.
+
+Limits: these configs train the GoS head through `train_unified.py`; RL for the recurrent block is not
+wired yet (it trains only through `benchmark_gos.py` SFT). Rollouts are sequential and unbatched, so a
+step with 4 generations and tool calls takes minutes on the 5070.
+
 ## Planned runs (after the frozen headroom pass)
 
 1. GPU tests; short smoke run of every benchmark arm.
