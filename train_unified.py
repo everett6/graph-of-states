@@ -28,6 +28,8 @@ class UnifiedConfig:
     model_revision: str | None = None
     output_dir: str = 'runs/gemma-gos'
     sources: list[dict] = field(default_factory=lambda: [dict(source) for source in DEFAULT_SOURCES])
+    # The default SFT recipe keeps 75% reasoning / 25% code feedback; verified-task RL mixes set this false.
+    enforce_feedback_mix: bool = True
     max_seq_length: int = 4096
     max_prompt_tokens: int = 3072
     max_completion_tokens: int = 1024
@@ -85,7 +87,7 @@ class UnifiedConfig:
             raise ValueError('Source weights must be positive integers')
         feedback = sum(source['weight'] for source in self.sources if source['name'] == 'feedback')
         reasoning = sum(source['weight'] for source in self.sources if source['name'] != 'feedback')
-        if reasoning != 3 * feedback or not feedback:
+        if self.enforce_feedback_mix and (reasoning != 3 * feedback or not feedback):
             raise ValueError('Source weights must preserve 75% reasoning / 25% feedback')
         if len({source['name'] for source in self.sources}) != len(self.sources):
             raise ValueError('Source names must be unique')

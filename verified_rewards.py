@@ -319,7 +319,7 @@ def random_control_reward(completions, **kwargs):
 
 def format_only_reward(completions, answer=None, task_spec=None, **kwargs):
     """Control: 1 when the answer is in checkable form (parseable \\boxed{} for math, a Python block that
-    parses for code), regardless of correctness."""
+    parses for code, a nonempty ```lean block without banned constructs), regardless of correctness."""
     from docker_code_reward import extract_code
     from symbolic_math import Unsupported, boxed, parse_answer
     answers=answer if answer is not None else [None]*len(completions)
@@ -332,6 +332,10 @@ def format_only_reward(completions, answer=None, task_spec=None, **kwargs):
             try: ast.parse(extract_code(text)); rewards.append(1.0)
             except SyntaxError: rewards.append(0.0)
             continue
+        if spec.get('kind')=='lean':
+            from lean_verifier import BANNED, extract_proof
+            proof=extract_proof(text) if re.search(r'```(?:lean4?|Lean)\s*\n',text) else ''
+            rewards.append(float(bool(proof.strip()) and not BANNED.search(proof))); continue
         if spec.get('kind')=='math' or (reference is not None and boxed(final_text(reference)) is not None):
             inner=boxed(text)
             try: ok=inner is not None and parse_answer(inner) is not None

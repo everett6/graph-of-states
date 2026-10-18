@@ -1,4 +1,5 @@
 """Unified pipeline tests use only synthetic rows and locally created weights."""
+from collections import Counter
 import importlib.util
 import json
 from dataclasses import asdict
@@ -107,6 +108,18 @@ def test_lazy_stream_mix_and_holdout(tmp_path):
     stream = mixed_examples([{'name':'feedback', 'weight':1, 'repo':'does-not-exist'}], tokenizer(), 'train')
     with pytest.raises(ValueError, match='Remote streaming is disabled'):
         next(stream)
+    # RL-only verified tasks (no reference answer) feed GRPO but never SFT.
+    spec = json.dumps({'kind': 'coding', 'verifier': 'stdio', 'stdio_cases': [['1\n', '1\n']]})
+    code = tmp_path / 'code.jsonl'
+    code.write_text(''.join(json.dumps({'prompt': f'echo {i}', 'answer': '', 'task_spec': spec}) + '\n'
+                            for i in range(50)))
+    rl = list(mixed_examples([{'name': 'code', 'path': str(code), 'weight': 1}], tokenizer(), 'train', mode='grpo',
+                             limit=10))
+    assert len(rl) == 10 and all(row['task_spec'] == spec for row in rl)
+    stats = Counter()
+    with pytest.raises(ValueError, match='No usable train examples'):
+        next(mixed_examples([{'name': 'code', 'path': str(code), 'weight': 1}], tokenizer(), 'train', stats=stats))
+    assert stats['rejected'] == 100  # every row rejected for SFT, on both passes over the source
 
 
 def test_peft_freezing_causality_and_roundtrip(tmp_path):

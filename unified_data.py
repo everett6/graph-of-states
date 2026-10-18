@@ -36,6 +36,9 @@ def content_text(content):
     return '\n'.join(pieces)
 
 
+VERIFIER_ONLY = '[graded by the task_spec verifier; no reference answer]'
+
+
 def normalize_row(row):
     raw = row.get('messages', row.get('conversations'))
     if raw is None and row.get('tool_interactions'):
@@ -249,6 +252,9 @@ def mixed_examples(sources, tokenizer, split, seed=17, mode='sft', max_seq_lengt
         for row in source_rows(source, allow_remote):
             stats['rows_scanned'] += 1
             try:
+                if mode != 'sft' and row.get('task_spec') and not row.get('answer') and isinstance(row.get('prompt'), str):
+                    # RL-only task (e.g. code with hidden tests): the verifier is the target, there is no reference.
+                    row = {**row, 'answer': VERIFIER_ONLY}
                 messages = normalize_row(row)
                 key = task_key(messages)
                 if task_split(key, seed) != split:

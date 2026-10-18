@@ -71,3 +71,10 @@ def test_workbook_proof_split():
     statement, opens, proof, informal = split_proof(full)
     assert statement == 'theorem wb_1 (a b : ℕ) (h₀ : a = 2)\n  (h₁ : a + b = 5) : b = 3 := sorry'
     assert (opens, proof, informal) == ('open BigOperators Real', '/- subtract -/\nsubst h₀\nomega', 'Show $b = 3$.')
+
+
+def test_format_control_for_lean_ignores_correctness():
+    from verified_rewards import format_only_reward
+    spec = {'kind': 'lean', 'statement': STATEMENT}
+    assert format_only_reward(['```lean\nnorm_num\n```', '```lean\nsorry\n```', 'no block'],
+                              task_spec=[spec] * 3) == [1.0, 0.0, 0.0]
