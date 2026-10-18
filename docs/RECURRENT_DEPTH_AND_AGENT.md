@@ -45,11 +45,17 @@ Both are recurrent-spec options here (benchmark and `rl_recurrent.py`):
 | `curriculum_steps`, `curriculum` | raise the mean from 1 to `mean_passes` over these steps, `linear` or `1-sqrt` |
 | `backprop_passes` | k: passes before the last k run without autograd (memory flat in pass count; gradient equals detaching the state entering the window, tested) |
 
+Fixed-point reasoners (arXiv 2606.18206) reach depths beyond training by keeping the loop contractive
+(small learnable re-injection scale; here the zero-initialized gate plays that role), training with truncated
+windows of iterations, and halting once the relative residual drops below 0.1. They report gains on
+puzzles and state tracking, not language-model math, so it is a measurement target here, not a claim.
+
 `pass_trace(model, ids)` reports each extra pass's relative state change, to see whether deep pass counts
 converge (shrinking) or diverge (growing). `configs/benchmark-depth-v2.json` compares, on identical rows:
 frozen, block LoRA p1, uniform 1–4 passes (evaluated at 1/4/8) and the curriculum recipe (mean 6, max 12,
 last 4 passes trained; evaluated at 1/4/8/12). `scripts/gpu_queue_depth.sh` runs it after the pilot, then the
-Lean/agent queue.
+Lean/agent queue. Benchmark reports include `pass_trace` for every evaluated pass count, and
+`scripts/compare_heldout.py runs/depth-v2 --scaling` gives paired accuracy against pass count for the same weights.
 
 ## Agent loop (`agent_loop.py`)
 
