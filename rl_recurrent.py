@@ -83,12 +83,12 @@ class RecurrentGRPOTrainer(GRPOTrainer):
 
 class PassSchedule(TrainerCallback):
     """Sample the recurrent pass count before each step (generation and scoring share it)."""
-    def __init__(self, model, maximum, seed, weights, log):
+    def __init__(self, model, spec, seed, log):
         from gos_recurrent import RandomPasses
-        self.sample, self.log = RandomPasses(model, maximum, seed, weights), log
+        self.sample, self.log = RandomPasses(model, spec, seed), log
 
     def on_step_begin(self, args, state, control, **kwargs):
-        self.log.append({'step': state.global_step, 'passes': self.sample()})
+        self.log.append({'step': state.global_step, 'passes': self.sample(state.global_step)})
 
 
 def load_trainable(base, variant, path, passes):
@@ -153,8 +153,8 @@ def main():
     passes_log = []
     callbacks = []
     if settings['variant'] == 'recurrent' and settings['recurrent'].get('max_passes', 1) > 1:
-        callbacks.append(PassSchedule(model, settings['recurrent']['max_passes'], settings['seed'],
-                                      settings['pass_weights'], passes_log))
+        spec = {'pass_weights': settings['pass_weights'], **settings['recurrent']}
+        callbacks.append(PassSchedule(model, spec, settings['seed'], passes_log))
     trainer = RecurrentGRPOTrainer(model=model, args=grpo, reward_funcs=load_reward(settings['reward_function']),
         train_dataset=data, processing_class=tokenizer, callbacks=callbacks, gos_config=config,
         rollout_func=agent_rollout if settings['agent_max_tools'] else sequential_rollout)

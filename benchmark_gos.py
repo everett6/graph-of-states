@@ -245,9 +245,9 @@ def worker(config,variant,depth,output,resume=False):
         model.train();optimizer.zero_grad(set_to_none=True)
         if variant=='recurrent':
             # Random pass count per step, keyed on (seed, step) so resume replays the same schedule.
-            from gos_recurrent import set_passes
-            spec=config.get('recurrent',{});top=spec.get('max_passes',4)
-            set_passes(model,random.Random(f"{config['seed']}:{step}").choices(range(1,top+1),spec.get('pass_weights',[1]*top))[0])
+            from gos_recurrent import sample_passes,set_passes
+            spec=config.get('recurrent',{})
+            set_passes(model,sample_passes(config['seed'],step,spec),spec.get('backprop_passes'))
         loss,n,total=loss_for(model,train[step%len(train)],variant,config['logit_chunk'])
         if not torch.isfinite(loss): raise RuntimeError('Nonfinite training loss')
         loss.backward();torch.nn.utils.clip_grad_norm_(params,1.0);optimizer.step()

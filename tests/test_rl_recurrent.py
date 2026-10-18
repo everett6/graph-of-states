@@ -56,7 +56,7 @@ def test_one_grpo_step_trains_the_recurrent_block(tmp_path):
     log = []
     trainer = RecurrentGRPOTrainer(model=model, args=args, train_dataset=data, processing_class=tok,
         reward_funcs=lambda completions, **k: [float(i % 2) for i in range(len(completions))],
-        rollout_func=sequential_rollout, gos_config=config, callbacks=[PassSchedule(model, 2, 0, None, log)])
+        rollout_func=sequential_rollout, gos_config=config, callbacks=[PassSchedule(model, {'max_passes': 2}, 0, log)])
     trainer.train()
     assert trainer.state.global_step == 1 and log and log[0]['passes'] in (1, 2)
     assert text_model(model).recurrence is not None
