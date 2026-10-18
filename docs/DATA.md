@@ -21,7 +21,7 @@ MATH-500 and miniF2F are older and are reported separately.
 |---|---|---|
 | `data/train/math-train-v1.jsonl` | 6,795 | MATH train worked solutions whose own `\boxed{}` answer verifies. `math-train-640.jsonl` (6,129) fits 640 tokens. |
 | `data/train/code-train-v1.jsonl` | 587 | LCB v1–v4 problems released before 2025 (LeetCode functional, AtCoder/Codeforces stdin/stdout) with ≥3 hidden tests each (up to 64 KB of cases). No reference solutions: for RL and agent trajectory collection, not SFT. |
-| `data/train/lean/lean-workbook-v1.jsonl` | ~7k (building) | Goedel-Prover's Lean Workbook proofs re-checked on our Mathlib (default heartbeats, axiom audit), statements screened against miniF2F and MathOlympiadBench (3-gram Jaccard ≥ 0.5 dropped). |
+| `data/train/lean/lean-workbook-v1.jsonl` | ~23k (building) | Goedel-Prover's Lean Workbook proofs re-checked on our Mathlib (default heartbeats, axiom audit), statements screened against miniF2F and MathOlympiadBench (3-gram Jaccard ≥ 0.5 dropped). |
 | `data/train/agent/*.jsonl` | queued | Verified agent transcripts from the frozen model (code, MATH, Lean) for rejection-sampling SFT. |
 
 Rebuild:
@@ -29,7 +29,7 @@ Rebuild:
 ```bash
 .venv-training/bin/python build_eval_set.py --config configs/eval-heldout-v2.json --output data/eval/heldout-v2.jsonl --against data/train/math-train-v1.jsonl data/train/code-train-v1.jsonl
 .venv-training/bin/python build_eval_set.py --config configs/train-code-v1.json --output data/train/code-train-v1.jsonl --against data/eval/heldout-v1.jsonl
-.venv-training/bin/python scripts/build_lean_train.py --input data/train/lean/lean_workbook_proofs.parquet --output data/train/lean/lean-workbook-v1.jsonl --against data/lean/minif2f-test.jsonl data/lean/matholympiadbench.jsonl --limit 9000 --workers 3
+.venv-training/bin/python scripts/build_lean_train.py --input data/train/lean/lean_workbook_proofs.parquet --output data/train/lean/lean-workbook-v1.jsonl --against data/lean/minif2f-test.jsonl data/lean/matholympiadbench.jsonl --workers 3
 .venv-training/bin/python scripts/filter_token_budget.py --input data/train/lean/lean-workbook-v1.jsonl --output data/train/lean/lean-workbook-640.jsonl --base-path <gemma dir> --budget 640
 ```
 

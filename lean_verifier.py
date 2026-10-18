@@ -90,8 +90,8 @@ def extract_proof(completion):
     return '\n'.join(line[indent:] for line in lines)
 
 
-def run_lean(source, timeout=120):
-    """(returncode, combined output) for one Lean file, sandboxed and time-limited."""
+def run_lean(source, timeout=120, limit=20000):
+    """(returncode, last `limit` chars of combined output) for one Lean file, sandboxed and time-limited."""
     lean, lean_path = lean_environment()
     with tempfile.TemporaryDirectory(prefix='gos-lean-') as directory:
         path = Path(directory) / 'Check.lean'
@@ -104,7 +104,7 @@ def run_lean(source, timeout=120):
                    '--setenv', 'HOME', '/tmp', '--chdir', '/work', lean, '/work/Check.lean']
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
-            return result.returncode, (result.stdout + result.stderr)[-20000:]
+            return result.returncode, (result.stdout + result.stderr)[-limit:]
         except subprocess.TimeoutExpired:
             return -1, f'timeout after {timeout} seconds'
 
@@ -184,7 +184,14 @@ def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120, confirm=T
             continue
         start = time.perf_counter()
         source, ranges = _batch_source([statements[i] for i in indices], [proofs[i] for i in indices], opens, preamble)
-        code, output = run_lean(source, timeout + 15 * len(indices))
+        code, output = run_lean(source, timeout + 15 * len(indices), limit=1 << 24)  # every theorem's audit
+        if code == -1:  # one slow proof stalls the file: bisect instead of checking every candidate alone
+            half = len(indices) // 2
+            for part in (indices[:half], indices[half:]):
+                for index, result in zip(part, check_proofs([statements[i] for i in part], [proofs[i] for i in part],
+                                                            opens, timeout, confirm, batch)):
+                    results[index] = result
+            continue
         seconds = (time.perf_counter() - start) / len(indices)
         marks = list(CHUNK.finditer(output))
         chunks = [(int(m.group(1)), output[m.start():(nxt.start() if nxt else len(output))])
