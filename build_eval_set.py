@@ -21,6 +21,8 @@ from symbolic_math import Unsupported, parse_answer
 MATH_SUFFIX = '\n\nReason step by step, then put only the final answer in \\boxed{}.'
 CODE_SUFFIX = ('\n\nWrite a complete Python 3 solution in one ```python block. Include every import you '
                'use (for example `from typing import List`). Do not read input or print output.')
+STDIO_SUFFIX = ('\n\nWrite a complete Python 3 program in one ```python block that reads the input from '
+                'standard input and prints the answer to standard output.')
 
 
 def read_rows(path):
@@ -97,25 +99,40 @@ def private_cases(encoded):
 
 
 def livecodebench_rows(source, stats):
-    """Functional (LeetCode) problems in a release-date window. Evaluation uses public tests only;
-    training sources may add private tests (private_tests: true) up to max_test_bytes of cases."""
+    """Problems in a release-date window. Functional (LeetCode) problems always; stdin/stdout problems
+    (AtCoder, Codeforces) when stdio: true. Evaluation uses public tests only; training sources may add
+    private tests (private_tests: true) up to max_test_bytes of cases."""
     after = date.fromisoformat(source.get('released_after', '1900-01-01'))
     before = date.fromisoformat(source.get('released_before', '9999-12-31'))
     for row in read_rows(source['path']):
         released = date.fromisoformat(str(row['contest_date'])[:10])
         cases = json.loads(row['public_test_cases'])
-        if not after < released < before or not cases or any(case.get('testtype') != 'functional' for case in cases):
-            stats[f"skipped_{source['name']}"] += 1  # outside the window, or stdin/stdout needing another harness
+        kinds = {case.get('testtype') for case in cases}
+        if not after < released < before or not cases or kinds not in ({'functional'}, {'stdin'}) or (
+                kinds == {'stdin'} and not source.get('stdio')):
+            stats[f"skipped_{source['name']}"] += 1  # outside the window, or a test harness not enabled here
             continue
+        kind, = kinds
         public = len(cases)
         if source.get('private_tests'):
             budget = source.get('max_test_bytes', 65536) - len(json.dumps(cases))
             for case in private_cases(row['private_test_cases']):
                 size = len(json.dumps(case))
-                if case.get('testtype') != 'functional' or size > budget:
+                if case.get('testtype') != kind or size > budget:
                     continue
                 cases.append(case)
                 budget -= size
+        if len(cases) - public < source.get('min_private_tests', 0):
+            stats[f"dropped_few_tests_{source['name']}"] += 1  # public examples alone are a weak reward signal
+            continue
+        meta = {'contest_date': str(released), 'difficulty': row.get('difficulty'), 'platform': row.get('platform'),
+                'public_tests': public, 'private_tests_used': len(cases) - public}
+        if kind == 'stdin':
+            stdio = [[case['input'], case['output']] for case in cases]
+            yield {'id': f"{source['name']}/{row['question_id']}", 'answer': '',
+                   'prompt': row['question_content'].strip() + STDIO_SUFFIX,
+                   'task_spec': {'kind': 'coding', 'verifier': 'stdio', 'stdio_cases': stdio}, 'meta': meta}
+            continue
         func = json.loads(row.get('metadata') or '{}').get('func_name')
         if not func or not func.isidentifier():
             raise ValueError('Functional problem without a valid func_name')
@@ -123,10 +140,7 @@ def livecodebench_rows(source, stats):
                   row['starter_code'].strip() + '\n```' + CODE_SUFFIX)
         tests = leetcode_tests(func, cases)
         yield {'id': f"{source['name']}/{row['question_id']}", 'prompt': prompt, 'answer': '',
-               'tests': tests, 'task_spec': {'kind': 'coding', 'verifier': 'docker', 'tests': tests},
-               'meta': {'contest_date': str(released), 'difficulty': row.get('difficulty'),
-                        'platform': row.get('platform'), 'public_tests': public,
-                        'private_tests_used': len(cases) - public}}
+               'tests': tests, 'task_spec': {'kind': 'coding', 'verifier': 'docker', 'tests': tests}, 'meta': meta}
 
 
 ADAPTERS = {'math': math_rows, 'math_solution': math_solution_rows, 'livecodebench': livecodebench_rows}

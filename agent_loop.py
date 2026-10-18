@@ -142,6 +142,7 @@ def main():
     parser.add_argument('--thinking', action='store_true')
     parser.add_argument('--sources')
     parser.add_argument('--limit', type=int)
+    parser.add_argument('--sample', type=int, help='Seeded random subset of this many rows (after --sources)')
     parser.add_argument('--collect', help='Write verified successful transcripts here (training tasks only)')
     args = parser.parse_args()
     import torch
@@ -160,6 +161,9 @@ def main():
     rows = read_jsonl(args.eval)
     if args.sources:
         rows = [row for row in rows if row['source'] in set(args.sources.split(','))]
+    if args.sample:
+        import random
+        rows = sorted(random.Random(17).sample(rows, min(args.sample, len(rows))), key=lambda row: row['id'])
     rows = rows[:args.limit] if args.limit else rows
     generate = chat_generator(model, tokenizer, args.max_new_tokens, args.temperature, args.thinking, args.context)
     output = Path(args.output)
