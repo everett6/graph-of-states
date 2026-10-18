@@ -37,14 +37,71 @@ def main():
     os._exit(42)
 main()
 '''
-# Standard-input programs: the sandbox only returns each run's output; expected outputs never enter it,
-# so a candidate cannot forge a pass (the host compares).
-STDIO_RUNNER = '''import io, json, os, sys
+# Standard-input programs: each test case runs in a forked child with real stdin/stdout pipes; the sandbox
+# only returns the outputs. Expected outputs never enter it, so a candidate cannot forge a pass (the host
+# compares).
+STDIO_RUNNER = '''import json, os, sys, threading
+def run_case(code, text, limit, report_fd):
+    in_r, in_w = os.pipe()
+    out_r, out_w = os.pipe()
+    err_r, err_w = os.pipe()
+    pid = os.fork()
+    if pid == 0:  # child: real fds 0/1, so input(), sys.stdin, open(0) and os.write(1) all work
+        for fd in (in_w, out_r, err_r, report_fd):  # the candidate never sees the report channel
+            os.close(fd)
+        os.dup2(in_r, 0)
+        os.dup2(out_w, 1)
+        os.dup2(os.open(os.devnull, os.O_WRONLY), 2)
+        sys.stdin, sys.stdout, sys.stderr = os.fdopen(0, "r"), os.fdopen(1, "w"), open(os.devnull, "w")
+        status, message = 0, ""
+        try:
+            exec(code, {"__name__": "__main__"})
+        except SystemExit as stop:
+            if stop.code not in (None, 0):
+                status, message = 1, "SystemExit: " + str(stop.code)[:100]
+        except BaseException as exc:
+            status, message = 1, type(exc).__name__ + ": " + str(exc)[:300]
+        try:
+            sys.stdout.flush()
+        except BaseException:
+            pass
+        os.write(err_w, message.encode()[:400])
+        os._exit(status)
+    for fd in (in_r, out_w, err_w):
+        os.close(fd)
+    def feed():  # in a thread, so a child that prints before reading cannot deadlock the pipes
+        data = memoryview(text.encode())
+        try:
+            while data:
+                data = data[os.write(in_w, data):]
+        except OSError:
+            pass
+        finally:
+            os.close(in_w)
+    writer = threading.Thread(target=feed, daemon=True)
+    writer.start()
+    chunks, size = [], 0
+    while True:
+        data = os.read(out_r, 65536)
+        if not data:
+            break
+        if size < limit:
+            chunks.append(data[:limit - size])
+        size += len(data)
+    os.close(out_r)
+    _, status = os.waitpid(pid, 0)
+    message = os.read(err_r, 400).decode(errors="replace")
+    os.close(err_r)
+    writer.join(1)
+    if os.WIFSIGNALED(status):
+        message = message or "killed by signal %d (time or memory limit?)" % os.WTERMSIG(status)
+    elif os.WEXITSTATUS(status) and not message:
+        message = "exit status %d" % os.WEXITSTATUS(status)
+    return {"stdout": b"".join(chunks).decode(errors="replace"), "error": message or None}
 def main():
     payload = json.load(sys.stdin)
     report = os.fdopen(os.dup(1), "w")
     os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
-    sys.stderr = io.StringIO()
     try:
         code = compile(payload["code"], "candidate.py", "exec")
     except BaseException as error:
@@ -53,20 +110,8 @@ def main():
         os._exit(1)
     outputs = []
     for text in payload["inputs"]:
-        raw = io.BytesIO()
-        sys.stdin = io.TextIOWrapper(io.BytesIO(text.encode()), encoding="utf-8")
-        sys.stdout = io.TextIOWrapper(raw, encoding="utf-8", write_through=True)
-        error = None
-        try:
-            exec(code, {"__name__": "__main__"})
-        except SystemExit as stop:
-            if stop.code not in (None, 0):
-                error = "SystemExit: " + str(stop.code)[:100]
-        except BaseException as exc:
-            error = type(exc).__name__ + ": " + str(exc)[:300]
-        sys.stdout.flush()
-        outputs.append({"stdout": raw.getvalue()[:65536].decode(errors="replace"), "error": error})
-        if error:
+        outputs.append(run_case(code, text, 65536, report.fileno()))
+        if outputs[-1]["error"]:
             break
     report.write(json.dumps({"outputs": outputs}))
     report.flush()

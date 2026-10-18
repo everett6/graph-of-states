@@ -37,3 +37,17 @@ def test_stdio_programs_are_judged_on_the_host(monkeypatch):
     assert not verify(forged, spec).correct  # the report channel is not stdout, and expected outputs stay outside
     assert not verify('```python\nimport os\nos._exit(0)\n```', spec).correct
     assert not verify('```python\nwhile True:\n    pass\n```', spec).correct
+
+
+@pytest.mark.skipif(not bwrap_works(), reason='bubblewrap unavailable')
+def test_stdio_supports_real_file_descriptors(monkeypatch):
+    monkeypatch.setenv('LRR_CODE_SANDBOX', 'bwrap')
+    spec = {'kind': 'coding', 'verifier': 'stdio', 'stdio_cases': [['2\n1 2\n', '3\n'], ['1\n' + '9 ' * 40000 + '\n',
+                                                                                          str(9 * 40000)]]}
+    for program in ('n, *a = map(int, open(0).read().split())\nprint(sum(a))',
+                    'import os, sys\nd = sys.stdin.buffer.read().split()\nos.write(1, str(sum(map(int, d[1:]))).encode())',
+                    'import sys\nsys.setrecursionlimit(10000)\ninput()\nprint(sum(map(int, input().split())))\nexit()'):
+        verdict = verify(f'```python\n{program}\n```', spec)
+        assert verdict.correct, (program, verdict.reason)
+    reason = verify('```python\nx = [0] * (10 ** 10)\n```', spec).reason
+    assert 'MemoryError' in reason or 'signal' in reason
