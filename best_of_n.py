@@ -92,7 +92,8 @@ def main():
     parser.add_argument('--eval', default='data/eval/heldout-v1.jsonl')
     parser.add_argument('--base-path', required=True, help='Local Gemma snapshot directory')
     parser.add_argument('--adapter', help='Optional adapter directory (GoS save_gos_adapter or PEFT LoRA)')
-    parser.add_argument('--adapter-kind', choices=['gos', 'lora'], default='gos')
+    parser.add_argument('--adapter-kind', choices=['gos', 'lora', 'recurrent'], default='gos')
+    parser.add_argument('--passes', type=int, help='Recurrent pass count at inference')
     parser.add_argument('--output', required=True)
     parser.add_argument('--n', type=int, default=8)
     parser.add_argument('--ks', default='1,2,4,8')
@@ -112,6 +113,9 @@ def main():
     from local_gemma import load_local_gemma
     torch.manual_seed(args.seed)
     model, tokenizer = load_local_gemma(args.base_path)
+    if args.adapter and args.adapter_kind == 'recurrent':
+        from gos_recurrent import load_recurrence
+        load_recurrence(model, args.adapter, args.passes)  # before PEFT so module names match
     if args.adapter and args.adapter_kind == 'gos':
         from gos_gemma import load_gos_adapter
         model = load_gos_adapter(model, args.adapter).eval()

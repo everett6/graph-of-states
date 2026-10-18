@@ -1,4 +1,4 @@
-"""Actuator-gated Python tool turns; generated code runs only in Docker."""
+"""Actuator-gated Python tool turns; generated code runs only in a sandbox (Docker or bubblewrap)."""
 import json
 import math
 import os
@@ -38,17 +38,18 @@ def execute_python(code, timeout=10, output_limit=16384, image=None):
         raise ValueError('Tool code must contain 1..65536 bytes')
     if timeout <= 0 or output_limit < 1:
         raise ValueError('Tool timeout and output limit must be positive')
-    if not shutil.which('docker'):
-        raise RuntimeError('Docker is required for tool execution')
-    image = image or os.environ.get('LRR_VERIFIER_IMAGE', 'python:3.12-slim')
-    check = subprocess.run(['docker', 'image', 'inspect', image], capture_output=True, timeout=10)
-    if check.returncode:
-        raise RuntimeError('Install the verifier Docker image separately; tools never pull images')
+    from docker_code_reward import BWRAP, _limits, sandbox_backend
+    if image is not None:
+        os.environ.setdefault('LRR_VERIFIER_IMAGE', image)
+    backend, image = sandbox_backend()  # Docker when usable, else rootless bubblewrap
     name = 'gos-tool-' + uuid.uuid4().hex
-    command = ['docker', 'run', '--rm', '--pull=never', '--name', name, '-i', '--network=none',
-        '--memory=256m', '--memory-swap=256m', '--cpus=1', '--pids-limit=64', '--read-only',
-        '--cap-drop=ALL', '--security-opt=no-new-privileges', '--user=65534:65534',
-        '--tmpfs=/tmp:rw,noexec,nosuid,size=64m', image, 'python', '-I', '-c', RUNNER]
+    if backend == 'docker':
+        command = ['docker', 'run', '--rm', '--pull=never', '--name', name, '-i', '--network=none',
+            '--memory=256m', '--memory-swap=256m', '--cpus=1', '--pids-limit=64', '--read-only',
+            '--cap-drop=ALL', '--security-opt=no-new-privileges', '--user=65534:65534',
+            '--tmpfs=/tmp:rw,noexec,nosuid,size=64m', image, 'python', '-I', '-c', RUNNER]
+    else:
+        command = BWRAP + ['/usr/bin/python3', '-I', '-c', RUNNER]
     process = None
     threads = []
     buffers = [bytearray(), bytearray()]
@@ -66,7 +67,8 @@ def execute_python(code, timeout=10, output_limit=16384, image=None):
         except (BrokenPipeError, OSError):
             pass
     try:
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   preexec_fn=_limits if backend == 'bwrap' else None)
         for stream, buffer in zip((process.stdout, process.stderr), buffers):
             thread = threading.Thread(target=drain, args=(stream, buffer), daemon=True)
             thread.start(); threads.append(thread)
@@ -77,10 +79,11 @@ def execute_python(code, timeout=10, output_limit=16384, image=None):
         except subprocess.TimeoutExpired:
             timed_out = True
             process.kill(); process.wait(timeout=5)
-        if process.returncode in (125, 126, 127):
+        if backend == 'docker' and process.returncode in (125, 126, 127):
             raise RuntimeError('Docker tool could not start')
     finally:
-        subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        if backend == 'docker':
+            subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         for thread in threads:
             thread.join(timeout=1)
     stdout, stderr = (bytes(buffer).decode(errors='replace') for buffer in buffers)

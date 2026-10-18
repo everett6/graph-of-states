@@ -55,6 +55,23 @@ def make_dataset(config,tokenizer):
         with open(path) as stream:
             tasks.extend(json.loads(line) for line in stream if line.strip())
     for task in tasks:
+        if 'messages' in task:
+            # Agent transcript: one row per assistant turn, conditioned on exactly the context the model saw
+            # at that turn (Gemma adds an empty thought block only to the live generation prompt).
+            spec=json.loads(task['task_spec']) if isinstance(task['task_spec'],str) else task['task_spec']
+            messages=task['messages']
+            if messages[-1]['role']!='assistant' or not verify(messages[-1]['content'],spec).correct:
+                raise ValueError('Transcript does not end in a verified answer')
+            for turn,message in enumerate(messages):
+                if message['role']!='assistant': continue
+                context=tokenizer.apply_chat_template(messages[:turn],tokenize=False,add_generation_prompt=True,enable_thinking=False)
+                prefix=tokenizer.encode(context,add_special_tokens=False)
+                suffix=tokenizer.encode(message['content'],add_special_tokens=False)+[tokenizer.eos_token_id]
+                if len(prefix)+len(suffix)>config['sequence_length']: break  # never truncate a turn's context
+                rows.append({'prompt':messages[0]['content'],'rendered':context,'input_ids':prefix+suffix,
+                    'labels':[-100]*len(prefix)+suffix,'task_spec':spec,'source':task.get('source','agent_rft'),
+                    'trace_id':task.get('trace_id',digest(messages))})
+            continue
         prompt,answer,spec=task['prompt'],task['answer'],task['task_spec']
         if not isinstance(prompt,str) or not isinstance(answer,str): raise ValueError('Verified tasks require string prompt/answer')
         verdict=verify(answer,spec)
@@ -86,7 +103,7 @@ def loss_for(model,row,variant,chunk=8):
     targets=torch.tensor(row['labels'][1:],device=device);valid=targets!=-100
     if not valid.any(): raise ValueError('No supervised continuation')
     lm=inner_lm(model)
-    if variant=='lora':
+    if variant in ('lora','recurrent'):
         hidden=lm.base_model(input_ids=ids,attention_mask=mask,use_cache=False,return_dict=True).last_hidden_state
     else:
         lm.base_model.eval()
@@ -181,6 +198,16 @@ def heldout_evaluation(model,tokenizer,config,train,output):
     return summarize(records,ks)
 
 
+def evaluate_split(model,tokenizer,config,variant,validation,evaluation,train,output):
+    Path(output).mkdir(parents=True,exist_ok=True)
+    with torch.no_grad():
+        val=[float(loss_for(model,row,variant,config['logit_chunk'])[0]) for row in validation[:config.get('validation_rows',2)]]
+    results={str(cache):[generate_measured(model,tokenizer,r,config['max_new_tokens'],cache) for r in evaluation] for cache in (False,True)}
+    heldout=heldout_evaluation(model,tokenizer,config,train,output) if config.get('heldout_tasks') else None
+    accuracy={cache:sum(x['verdict']['correct'] for x in items)/len(items) for cache,items in results.items()}
+    return {'validation_nll':val,'test_outputs':results,'test_accuracy':accuracy,'heldout':heldout}
+
+
 def worker(config,variant,depth,output,resume=False):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     seed_all(config['seed']);model,tokenizer=load_local_gemma(config['base_path'])
@@ -188,12 +215,12 @@ def worker(config,variant,depth,output,resume=False):
         'edge_routing':True,'auxiliary_critics':True,'min_rounds':min(2,depth)}|config.get('enhancements',{})
     from train_unified import validate_enhancements
     validate_enhancements(enhancements,depth)
-    model=configure(model,variant,config['width'],depth,enhancements,config.get('lora_rank',2),config.get('lora_targets','qv'))
+    model=configure(model,variant,config['width'],depth,enhancements,config.get('lora_rank',2),config.get('lora_targets','qv'),config.get('recurrent'))
     rows,audit=make_dataset(config,tokenizer);write(output/'split_audit.json',audit)
     write(output/'dataset_manifest.json',rows)
     train=[r for r in rows if r['split']=='train' and any(x!=-100 for x in r['labels'][1:])]
     validation=[r for r in rows if r['split']=='validation']
-    evaluation=[r for r in rows if r['split']=='test' and 'task_spec' in r]
+    evaluation=[r for r in rows if r['split']=='test' and 'task_spec' in r and r['source']!='agent_rft']
     # Balanced task coverage where present. No selection using model outcomes.
     evaluation=[r for kind in ('math','coding','structured') for r in [x for x in evaluation if x['task_spec']['kind']==kind][:config['eval_per_kind']]]
     if not train or not evaluation: raise ValueError('Empty training or test partition')
@@ -206,7 +233,7 @@ def worker(config,variant,depth,output,resume=False):
             if pool: train.append(pool.pop())
     metadata={'config_sha256':digest(config),'data_sha256':audit['sha256'],'variant':variant,'depth':depth}
     params=[p for p in model.parameters() if p.requires_grad]
-    lr=config.get('lora_learning_rate',config['learning_rate']) if variant=='lora' else config['learning_rate']
+    lr=config.get('lora_learning_rate',config['learning_rate']) if variant in ('lora','recurrent') else config['learning_rate']
     optimizer=torch.optim.AdamW(params,lr=lr) if params else None
     start_step=load_checkpoint(output/'checkpoint.pt',model,optimizer,metadata) if resume else 0
     if not resume and (output/'checkpoint.pt').exists(): raise FileExistsError('Use --resume or a fresh output directory')
@@ -214,6 +241,11 @@ def worker(config,variant,depth,output,resume=False):
     history=[];sync();torch.cuda.reset_peak_memory_stats();start=time.perf_counter();tokens=supervised=0
     for step in range(start_step,config['steps'] if params else 0):
         model.train();optimizer.zero_grad(set_to_none=True)
+        if variant=='recurrent':
+            # Random pass count per step, keyed on (seed, step) so resume replays the same schedule.
+            from gos_recurrent import set_passes
+            spec=config.get('recurrent',{});top=spec.get('max_passes',4)
+            set_passes(model,random.Random(f"{config['seed']}:{step}").choices(range(1,top+1),spec.get('pass_weights',[1]*top))[0])
         loss,n,total=loss_for(model,train[step%len(train)],variant,config['logit_chunk'])
         if not torch.isfinite(loss): raise RuntimeError('Nonfinite training loss')
         loss.backward();torch.nn.utils.clip_grad_norm_(params,1.0);optimizer.step()
@@ -221,10 +253,17 @@ def worker(config,variant,depth,output,resume=False):
         save_checkpoint(output/'checkpoint.pt',model,optimizer,step+1,metadata)
         print(json.dumps({'variant':variant,'depth':depth,'step':step+1,'loss':history[-1]}),flush=True)
     sync();seconds=time.perf_counter()-start;peak=torch.cuda.max_memory_allocated();reserved=torch.cuda.max_memory_reserved()
-    model.eval();val=[]
-    with torch.no_grad():
-        for row in validation[:config.get('validation_rows',2)]: val.append(float(loss_for(model,row,variant,config['logit_chunk'])[0]))
-    results={str(cache):[generate_measured(model,tokenizer,r,config['max_new_tokens'],cache) for r in evaluation] for cache in (False,True)}
+    model.eval()
+    by_passes={}
+    if variant=='recurrent':
+        from gos_recurrent import set_passes
+        for passes in config.get('recurrent',{}).get('eval_passes',[1,config.get('recurrent',{}).get('max_passes',4)]):
+            set_passes(model,passes)
+            by_passes[str(passes)]=evaluate_split(model,tokenizer,config,variant,validation,evaluation,train,output/f'passes-{passes}')
+        model_eval=by_passes[str(passes)]  # headline numbers: the last (largest) pass count
+    else:
+        model_eval=evaluate_split(model,tokenizer,config,variant,validation,evaluation,train,output)
+    val,results=model_eval['validation_nll'],model_eval['test_outputs']
     metrics={}
     for cache,items in results.items():
         duration=sum(x['seconds'] for x in items);generated=sum(x['tokens'] for x in items)
@@ -248,8 +287,10 @@ def worker(config,variant,depth,output,resume=False):
         'git_branch':subprocess.check_output(['git','branch','--show-current'],text=True).strip(),
         'limitations':['Short pilot; no reasoning improvement established.','Lexical near-duplicate audit is not semantic equivalence.',
             'Restricted Python tasks cover a safe pure-function subset.','Deterministic seeds do not guarantee bitwise CUDA reproducibility.']}
-    if config.get('heldout_tasks'):
-        report['heldout']=heldout_evaluation(model,tokenizer,config,train,output)
+    if by_passes:
+        report['by_passes']={p:{k:v for k,v in item.items() if k!='test_outputs'} for p,item in by_passes.items()}
+    if model_eval.get('heldout') is not None:
+        report['heldout']=model_eval['heldout']
     if variant=='gos':
         if config.get('measure_eviction_quality',False):
             from cache_quality import cache_quality
@@ -272,14 +313,17 @@ def worker(config,variant,depth,output,resume=False):
             error=float((actual-expected).abs().max())
         if error!=0: raise RuntimeError('GGUF head roundtrip changed logits')
         report['gguf_head_roundtrip_max_logit_error']=error
-    elif variant=='lora': model.save_pretrained(output/'adapter',save_embedding_layers=False)
+    elif variant in ('lora','recurrent'): model.save_pretrained(output/'adapter',save_embedding_layers=False)
+    if variant=='recurrent':
+        from gos_recurrent import save_recurrence
+        save_recurrence(model,output/'adapter')
     write(output/'report.json',report)
     return report
 
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--config',required=True);parser.add_argument('--output',required=True)
-    parser.add_argument('--worker',choices=['frozen','lora','mlp','gos']);parser.add_argument('--depth',type=int,default=2)
+    parser.add_argument('--worker',choices=['frozen','lora','mlp','gos','recurrent']);parser.add_argument('--depth',type=int,default=2)
     parser.add_argument('--resume',action='store_true');args=parser.parse_args();config=json.loads(Path(args.config).read_text())
     required=['format_version','base_path','seed','steps','sequence_length','width','learning_rate','eval_per_kind','max_new_tokens','logit_chunk','profile_new_tokens']
     if any(k not in config for k in required) or config['format_version']!=1: raise ValueError('Invalid versioned configuration')
@@ -307,13 +351,18 @@ def main():
             subprocess.run([sys.executable,__file__,'--config',str(filename),'--output',str(directory),
                 '--worker','gos','--depth',str(config['depths'][-1])],stdout=log,stderr=subprocess.STDOUT,check=True)
         reports.append(json.loads((directory/'report.json').read_text()))
-    for extra in config.get('extra_gos',[]):
-        changed=dict(config);changed['enhancements']=config.get('enhancements',{})|extra['enhancements'];changed['ablations']=[];changed['extra_gos']=[]
+    for extra in config.get('extra_variants',[]):
+        # {'name', 'worker', 'depth'?, 'enhancements'?, 'overrides'?}: extra arms with their own configs.
+        changed=dict(config)|extra.get('overrides',{});changed['ablations']=[];changed['extra_variants']=[]
+        changed['enhancements']=config.get('enhancements',{})|extra.get('enhancements',{})
         filename=output/f"config-{extra['name']}.json";write(filename,changed)
         directory=output/extra['name']
-        with (output/f"{extra['name']}.log").open('w') as log:
-            subprocess.run([sys.executable,__file__,'--config',str(filename),'--output',str(directory),
-                '--worker','gos','--depth',str(extra.get('depth',config['depths'][-1]))],stdout=log,stderr=subprocess.STDOUT,check=True)
+        command=[sys.executable,__file__,'--config',str(filename),'--output',str(directory),
+            '--worker',extra.get('worker','gos'),'--depth',str(extra.get('depth',config['depths'][-1]))]
+        if args.resume and (directory/'checkpoint.pt').exists(): command.append('--resume')
+        if not (directory/'report.json').exists():
+            with (output/f"{extra['name']}.log").open('w') as log:
+                subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,check=True)
         reports.append(json.loads((directory/'report.json').read_text()))
     write(output/'comparison.json',{'format_version':1,'configuration_sha256':digest(config),'experiments':reports})
 

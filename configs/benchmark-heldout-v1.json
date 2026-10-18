@@ -39,13 +39,53 @@
   "heldout_per_source": {
     "math500_l45": 80
   },
-  "extra_gos": [
+  "extra_variants": [
     {
       "name": "gos-deep-supervision-d4",
+      "worker": "gos",
       "depth": 4,
       "enhancements": {
         "deep_supervision": true,
         "thermal": false
+      }
+    },
+    {
+      "name": "recurrent-block18-24-p4",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 4,
+          "pass_weights": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "eval_passes": [
+            1,
+            4
+          ]
+        }
+      }
+    },
+    {
+      "name": "block-lora18-24-p1",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 1,
+          "eval_passes": [
+            1
+          ]
+        }
       }
     }
   ]

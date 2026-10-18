@@ -38,9 +38,23 @@ class MatchedMLP(nn.Module):
 def trainable_count(model): return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def configure(base, variant, width=32, rounds=2, enhancements=None, lora_rank=2, lora_targets='qv'):
+def configure(base, variant, width=32, rounds=2, enhancements=None, lora_rank=2, lora_targets='qv', recurrent=None):
     base.requires_grad_(False)
     if variant=='frozen': return base
+    if variant=='recurrent':
+        # Shared-weight re-passing of a middle block; LoRA only on that block (shared by all passes).
+        from peft import LoraConfig,get_peft_model
+        from gos_recurrent import attach_recurrence,block_lora_targets,recurrence_parameters
+        spec=recurrent or {}
+        start,end=spec.get('start',18),spec.get('end',24)
+        attach_recurrence(base,start,end,spec.get('max_passes',4),spec.get('rank',64))
+        base.requires_grad_(False)
+        model=get_peft_model(base,LoraConfig(r=spec.get('lora_rank',16),lora_alpha=2*spec.get('lora_rank',16),
+            lora_dropout=0,target_modules=block_lora_targets(start,end),task_type='CAUSAL_LM'))
+        for parameter in recurrence_parameters(model): parameter.requires_grad_(True)
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant':False})
+        model.enable_input_require_grads()
+        return model
     if variant=='gos': return attach_gos(base,width,4,rounds,enhancements)
     if variant=='mlp':
         # Obtain the exact graph budget without allocating a second backbone.
