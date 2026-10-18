@@ -127,5 +127,31 @@ verification on the plain adapter.
   with JSON-string task specs from local files: AIME 2025/2026, HMMT Feb 2025/2026 (post-cutoff; Gemma 4 card
   says Jan 2025), MATH-500 level 4–5 (pre-cutoff, report separately), LiveCodeBench v6 LeetCode functional
   problems after 2025-01-31 (public tests only; pickled private tests are never loaded). Near-duplicates against
-  `--against` training files are dropped by 3-gram Jaccard ≥ 0.5. Headroom is not yet measured.
-- Code rows need the `python:3.12-slim` Docker image, which is not installed.
+  `--against` training files are dropped by 3-gram Jaccard ≥ 0.5.
+- **Headroom measured (frozen backbone, no adapter).** `scripts/measure_headroom.py` on `heldout-v1.jsonl`
+  (416 rows): Gemma 4 12B NF4, greedy, `enable_thinking=False`, **max_new_tokens = 2048**, batch 8 (batch 16
+  OOMs; peak 10.3 GiB). Coding rows scored with the rootless bwrap sandbox (Docker is not accessible to this
+  user). Pass@1 with 95% Wilson intervals:
+
+  | Source | Pass | Rate | 95% CI | Hit 2048 cap | Mean tokens |
+  |---|---|---|---|---|---|
+  | aime_2025 | 12/30 | 40.0% | 24.6–57.7% | 17 | 1629 |
+  | aime_2026 | 11/30 | 36.7% | 21.9–54.5% | 16 | 1679 |
+  | hmmt_feb_2025 | 6/30 | 20.0% | 9.5–37.3% | 21 | 1806 |
+  | hmmt_feb_2026 | 6/33 | 18.2% | 8.6–34.4% | 22 | 1759 |
+  | lcb_v6_leetcode | 26/49 | 53.1% | 39.4–66.3% | 23 | 1310 |
+  | math500_l45 (pre-cutoff) | 197/244 | 80.7% | 75.3–85.2% | 35 | 939 |
+  | post-cutoff math | 35/123 | 28.5% | 21.2–37.0% | 76 | 1719 |
+  | post-cutoff all | 61/172 | 35.5% | 28.7–42.9% | 99 | 1603 |
+  | overall | 258/416 | 62.0% | 57.3–66.6% | 134 | 1213 |
+
+  Verdict: the **post-cutoff** sources sit inside the targeted 20–60% band (35.5% overall, all five sources
+  between 18% and 53%), so they have headroom; **MATH-500 L4–5 is near-saturated** (81%) and pulls the
+  all-rows figure to 62%, just above the band. Use post-cutoff rows as the primary comparison metric and
+  MATH-500 only as a secondary contamination-sensitive check. The 2048 cap binds: 134/416 rows (32%) hit it and
+  **none of them passed** (258/282 of finished rows passed), so part of the measured gap is length, not
+  reasoning; a longer cap or a length-efficient adapter will move these numbers. At n≈30 per competition source
+  the CIs are ±15 pp, so per-source GoS-vs-LoRA differences under ~20 pp will not be resolvable; pool
+  post-cutoff rows (n=172, ±7 pp) for the main comparison.
+  Timing: 22.9 s/row at batch 8 (≈75 tok/s aggregate, ~2.6 h wall for 416 rows); a batch takes as long as its
+  longest row, so batches with a truncated row cost ~215 s. Outputs: `runs/headroom-v1/` (ignored).

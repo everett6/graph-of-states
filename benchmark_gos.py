@@ -338,9 +338,10 @@ def main():
     for variant,depth in variants:
         directory=output/f'{variant}-d{depth}'
         command=[sys.executable,__file__,'--config',args.config,'--output',str(directory),'--worker',variant,'--depth',str(depth)]
-        if args.resume and variant!='frozen': command.append('--resume')
-        with (output/f'{variant}-d{depth}.log').open('w') as log:
-            subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,check=True)
+        if args.resume and variant!='frozen' and (directory/'checkpoint.pt').exists(): command.append('--resume')
+        if not (args.resume and (directory/'report.json').exists()):
+            with (output/f'{variant}-d{depth}.log').open('w') as log:
+                subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,check=True)
         reports.append(json.loads((directory/'report.json').read_text()))
     for ablation in config.get('ablations',[]):
         switches={'recurrent_memory':{'latent_slots':0},'holographic_scratchpad':{'scratchpad':False},
