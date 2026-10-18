@@ -6,6 +6,11 @@
 - `lean_env/`: Lake project pinned to Mathlib `v4.36.0-rc1` with the prebuilt cache (`.lake/`, ~7 GB, git-ignored).
   Rebuild elsewhere: `cd lean_env && lake exe cache get`.
 - One check ≈ 2–6 s and ≈ 7 GB RSS (importing Mathlib dominates), so run ≤ 3 checks in parallel on 29 GB RAM.
+- Importing Mathlib dominates, so `check_proofs` puts many candidates in one file (16 trivial proofs ≈ the cost
+  of one). A batch pass is only a candidate and is re-checked alone; a batch failure is re-checked alone when
+  another candidate could have interfered (environment-changing text, errors outside every theorem,
+  timeout). Verdicts are therefore identical to single checks (tested). `verify_many` uses it for best-of-N
+  and GRPO. `confirm=False` skips the re-check and is used only to filter trusted dataset proofs.
 
 ## What counts as a proof (`lean_verifier.py`)
 
@@ -32,6 +37,20 @@ used by Goedel-Prover-V2. Lean is the real success criterion, so this is not tes
 | 4 | Formal Conjectures (DeepMind) open statements | a checked proof here is a genuinely new result |
 
 Statements that do not elaborate on this Mathlib are dropped and counted (`scripts/build_lean_tasks.py`).
+
+## Training data
+
+`scripts/build_lean_train.py` re-checks Goedel-Prover's 29.7k Lean Workbook proofs on this Mathlib (default
+heartbeats, axiom audit; ~20% fail, mostly renamed lemmas such as `div_le_iff` and heartbeat limits) and drops
+statements that are near-duplicates of miniF2F or MathOlympiadBench. Rows use the evaluation prompt format,
+so they serve as SFT targets and as RL / agent-collection tasks.
+
+## Queued runs (`scripts/gpu_queue_lean.sh`)
+
+Full miniF2F with the Lean tool takes ~30 h per model on this GPU (NF4, sequential turns), so the queue runs
+seeded subsets first: Goedel-Prover-V2-8B on 40 problems (harness sanity check against its published
+~84.6% pass@32), Gemma 4 12B on 80, both pass@2 with up to 2 Lean checks. Then it collects verified agent
+transcripts on training tasks (code, MATH, Lean Workbook).
 
 ## About the Millennium problems
 

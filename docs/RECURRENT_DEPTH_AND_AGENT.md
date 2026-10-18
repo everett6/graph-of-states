@@ -43,6 +43,7 @@ rendered history). This is rejection-sampling fine-tuning on the model's own ver
 
 1. GPU tests; short smoke run of every benchmark arm.
 2. Frozen baselines: best-of-N (thinking off/on) and the agent loop on the held-out set.
-3. Agent trajectories on MATH train problems (frozen model, verified successes only).
+3. Agent trajectories on training tasks (frozen model, verified successes only): 587 LCB problems with hidden
+   tests, 400 MATH problems, 300 Lean Workbook statements (`scripts/gpu_queue_lean.sh`).
 4. Comparison on MATH SFT (+ agent transcripts): frozen, all-linear LoRA, MLP, GoS d1/d4, GoS deep supervision,
    block LoRA p1, recurrent p4 (evaluated at 1 and 4 passes), each single-shot and in the agent loop.
