@@ -110,9 +110,9 @@ def main():
     if args.n < max(ks) or args.n < 1 or args.temperature <= 0:
         raise ValueError('--n must be >= max(--ks) and temperature positive')
     import torch
-    from local_gemma import load_local_gemma
+    from local_gemma import load_causal_lm
     torch.manual_seed(args.seed)
-    model, tokenizer = load_local_gemma(args.base_path)
+    model, tokenizer = load_causal_lm(args.base_path)
     if args.adapter and args.adapter_kind == 'recurrent':
         from gos_recurrent import load_recurrence
         load_recurrence(model, args.adapter, args.passes)  # before PEFT so module names match

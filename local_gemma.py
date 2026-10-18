@@ -28,3 +28,21 @@ def load_local_gemma(path, nf4=True):
     tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True)
     tokenizer.pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     return model, tokenizer
+
+
+def load_causal_lm(path, nf4=True):
+    """Local Gemma 4 via load_local_gemma; any other local causal LM (e.g. a Qwen-based prover) via Auto*."""
+    path = Path(path)
+    raw = json.loads((path / 'config.json').read_text())
+    if raw.get('model_type', '').startswith('gemma4'):
+        return load_local_gemma(path, nf4)
+    from transformers import AutoModelForCausalLM
+    kwargs = dict(local_files_only=True, dtype=torch.bfloat16, attn_implementation='sdpa')
+    if nf4:
+        kwargs.update(device_map={'': torch.cuda.current_device()}, quantization_config=BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type='nf4', bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16))
+    model = AutoModelForCausalLM.from_pretrained(path, **kwargs).requires_grad_(False).eval()
+    tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True)
+    tokenizer.pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    return model, tokenizer

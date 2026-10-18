@@ -44,3 +44,16 @@ def test_tool_budget_is_enforced():
     result = run_agent('q', generate, 2, executor_factory(log))
     assert len(log) == 2 and 'No runs left' in result['messages'][-2]['content']
     assert result['final'].endswith('\\boxed{3}')  # third reply is final even though it contains <run>
+
+
+def test_lean_tool_protocol_uses_lean_tags():
+    from agent_loop import LEAN
+    seen = []
+    def executor(proof, timeout=120, output_limit=2000):
+        seen.append(proof)
+        ok = 'norm_num' in proof
+        return {'success': ok, 'timed_out': False, 'stdout': 'Proof checked.' if ok else 'error: unsolved goals', 'stderr': ''}
+    generate = scripted(['<lean>\nsimp\n</lean>', '<lean>\nnorm_num\n</lean>', '```lean\nnorm_num\n```'])
+    result = run_agent('prove 1+1=2', generate, 3, executor, kind='lean')
+    assert seen == ['simp\n', 'norm_num\n'] and 'unsolved goals' in result['messages'][2]['content']
+    assert result['final'] == '```lean\nnorm_num\n```' and tool_call('<run>\nx\n</run>', LEAN)[0] is None

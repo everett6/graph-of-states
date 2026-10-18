@@ -20,35 +20,52 @@ AGENT_INSTRUCTIONS = (
     'To run code, write it between <run> and </run> on their own lines, then stop and wait: '
     'the output will be shown to you. Use at most {tools} runs. When you are confident, reply without '
     '<run> and give the final answer in the requested format.')
+LEAN_INSTRUCTIONS = (
+    '\n\nYou can check a proof attempt with Lean: write the tactic proof between <lean> and </lean> on their own '
+    'lines, then stop and wait; Lean\'s response (errors and remaining goals) will be shown to you. Use at most '
+    '{tools} checks. Then reply without <lean> and give the final tactic proof in one ```lean block.')
 RUN = re.compile(r'<run>\s*\n?(.*?)</run>', re.S)
+LEAN = re.compile(r'<lean>\s*\n?(.*?)</lean>', re.S)
 OUTPUT_LIMIT = 2000
 
 
-def tool_call(text):
+def tool_call(text, pattern=RUN):
     """(code, text truncated after the call) or (None, text)."""
-    match = RUN.search(text)
+    match = pattern.search(text)
     if not match or not match.group(1).strip():
         return None, text
     return match.group(1), text[:match.end()]
 
 
-def run_agent(prompt, generate, max_tools=3, executor=None):
-    """generate(messages, sample) -> (text, tokens). Returns the final text and the full transcript."""
+def lean_executor(spec):
+    """Tool backend for Lean tasks: check an attempted tactic proof of the task's own statement."""
+    from lean_verifier import DEFAULT_OPENS, check_proof, feedback
+    def execute(proof, timeout=120, output_limit=OUTPUT_LIMIT):
+        result = check_proof(spec['statement'], proof, spec.get('opens', DEFAULT_OPENS), timeout)
+        return {'success': result['correct'], 'timed_out': result['reason'] == 'timeout',
+                'stdout': feedback(result, output_limit), 'stderr': ''}
+    return execute
+
+
+def run_agent(prompt, generate, max_tools=3, executor=None, kind='python'):
+    """generate(messages, sample) -> (text, tokens). Returns the final text and the full transcript.
+    kind='python' runs <run> code; kind='lean' checks <lean> proofs (executor from lean_executor)."""
     if executor is None:
         from gos_tools import execute_python as executor
-    messages = [{'role': 'user', 'content': prompt + AGENT_INSTRUCTIONS.format(tools=max_tools)}]
+    pattern, instructions = (LEAN, LEAN_INSTRUCTIONS) if kind == 'lean' else (RUN, AGENT_INSTRUCTIONS)
+    messages = [{'role': 'user', 'content': prompt + instructions.format(tools=max_tools)}]
     tokens, calls = 0, []
     for turn in range(max_tools + 1):
         text, used = generate(messages, True)
         tokens += used
-        code, text = tool_call(text) if turn < max_tools else (None, text)
+        code, text = tool_call(text, pattern) if turn < max_tools else (None, text)
         messages.append({'role': 'assistant', 'content': text})
         if code is None:
             return {'final': text, 'messages': messages, 'tokens': tokens, 'tool_calls': calls}
-        outcome = executor(code, timeout=10, output_limit=OUTPUT_LIMIT)
+        outcome = executor(code, timeout=120 if kind == 'lean' else 10, output_limit=OUTPUT_LIMIT)
         feedback = (outcome['stdout'] + ('\n' + outcome['stderr'] if outcome['stderr'].strip() else '')).strip()
         if outcome['timed_out']:
-            feedback = 'TimeoutError: execution took longer than 10 seconds'
+            feedback = 'TimeoutError: the check ran out of time'
         calls.append({'success': outcome['success'], 'timed_out': outcome['timed_out']})
         remaining = max_tools - turn - 1
         messages.append({'role': 'user', 'content': f'Output:\n{feedback[:OUTPUT_LIMIT] or "(no output)"}\n\n' + (
@@ -61,7 +78,9 @@ def evaluate_agent_row(row, generate, n, max_tools=3, executor=None, verifier=ve
     start = time.perf_counter()
     samples = []
     for _ in range(n):
-        result = run_agent(row['prompt'], generate, max_tools, executor)
+        kind = 'lean' if spec['kind'] == 'lean' else 'python'
+        tool = lean_executor(spec) if kind == 'lean' and executor is None else executor
+        result = run_agent(row['prompt'], generate, max_tools, tool, kind)
         verdict = verifier(result['final'], spec)
         if not verdict.verified:
             raise RuntimeError(f"Verifier unavailable for {row['id']}: {verdict.reason}")
@@ -99,7 +118,7 @@ def chat_generator(model, tokenizer, max_new_tokens, temperature, thinking=False
             return 'Context budget exhausted.', 0
         kwargs = dict(do_sample=True, temperature=temperature, top_k=0, top_p=1.0) if sample else dict(do_sample=False)
         output = model.generate(input_ids=ids, attention_mask=torch.ones_like(ids), max_new_tokens=budget,
-                                pad_token_id=tokenizer.pad_token_id, use_cache=True, stop_strings=['</run>'],
+                                pad_token_id=tokenizer.pad_token_id, use_cache=True, stop_strings=['</run>', '</lean>'],
                                 tokenizer=tokenizer, **kwargs)
         tokens = output[0, ids.shape[1]:].tolist()
         length = next((i + 1 for i, t in enumerate(tokens) if t == tokenizer.eos_token_id), len(tokens))
@@ -126,9 +145,9 @@ def main():
     parser.add_argument('--collect', help='Write verified successful transcripts here (training tasks only)')
     args = parser.parse_args()
     import torch
-    from local_gemma import load_local_gemma
+    from local_gemma import load_causal_lm
     torch.manual_seed(17)
-    model, tokenizer = load_local_gemma(args.base_path)
+    model, tokenizer = load_causal_lm(args.base_path)
     if args.adapter_kind == 'recurrent' and args.adapter:
         from gos_recurrent import load_recurrence
         load_recurrence(model, args.adapter, args.passes)

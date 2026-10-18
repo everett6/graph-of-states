@@ -223,7 +223,18 @@ def verify(completion, task):
     if kind=='math': return math_reward(completion,task['expected'],task.get('tolerance','0'))
     if kind=='structured': return structured_reward(completion,task['expected'],task.get('schema'))
     if kind=='coding': return coding_reward(completion,task)
+    if kind=='lean': return lean_reward(completion,task)
     raise ValueError('Unknown task kind')
+
+
+def lean_reward(completion, spec):
+    """Lean 4 + Mathlib check of the tactic proof against the exact dataset statement."""
+    from lean_verifier import DEFAULT_OPENS, check_proof, extract_proof, feedback
+    try:
+        result=check_proof(spec['statement'],extract_proof(completion),spec.get('opens',DEFAULT_OPENS))
+    except RuntimeError as error:
+        return Verdict(False,False,'verifier_unavailable: '+str(error))
+    return Verdict(True,result['correct'],'lean_checked' if result['correct'] else 'lean_failure: '+feedback(result))
 
 
 def task_verified_reward(completions, task_spec, **kwargs):
