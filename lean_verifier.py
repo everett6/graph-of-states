@@ -34,6 +34,24 @@ def lean_environment():
     return str(lean), path
 
 
+def normalize_statement(formal_statement):
+    """Split a dataset statement into (statement, open lines): drop imports/set_option and doc comments
+    (the verifier supplies `import Mathlib` and fixed options), move `open ...` lines out."""
+    text = re.sub(r'/-[-!]?.*?-/', '', formal_statement, flags=re.S)
+    opens, kept = [], []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('import ') or stripped.startswith('set_option '):
+            continue
+        if stripped.startswith('open ') and not any(item.strip() for item in kept):
+            opens.append(stripped)
+            continue
+        kept.append(line)
+    # Mathlib renamed big-operator binders `∑ x in s, f` -> `∑ x ∈ s, f` (same meaning).
+    statement = re.sub(r'([∑∏]\s*[^,∈∑∏]+?)\s+in\s+', r'\1 ∈ ', '\n'.join(kept).strip())
+    return statement, '\n'.join(opens)
+
+
 def statement_body(formal_statement):
     """'[defs] theorem name args : type := [by] [sorry]' -> (name, 'args : type', defs).
 
