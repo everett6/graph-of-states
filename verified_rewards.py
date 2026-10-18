@@ -237,6 +237,29 @@ def lean_reward(completion, spec):
     return Verdict(True,result['correct'],'lean_checked' if result['correct'] else 'lean_failure: '+feedback(result))
 
 
+def verify_many(completions, specs):
+    """verify() for a batch; Lean tasks sharing `open` lines are checked with one Mathlib import."""
+    specs=[_spec(spec) for spec in specs]
+    verdicts=[None]*len(completions)
+    lean={}
+    for index,(completion,spec) in enumerate(zip(completions,specs)):
+        if spec['kind']=='lean': lean.setdefault(spec.get('opens'),[]).append(index)
+        else: verdicts[index]=verify(completion,spec)
+    if lean:
+        from lean_verifier import DEFAULT_OPENS, check_proofs, extract_proof, feedback
+        for opens,indices in lean.items():
+            try:
+                results=check_proofs([specs[i]['statement'] for i in indices],
+                                     [extract_proof(completions[i]) for i in indices],opens or DEFAULT_OPENS)
+            except RuntimeError as error:
+                results=None; reason='verifier_unavailable: '+str(error)
+            for i,result in zip(indices,results or [None]*len(indices)):
+                verdicts[i]=(Verdict(False,False,reason) if result is None else
+                             Verdict(True,result['correct'],'lean_checked' if result['correct']
+                                     else 'lean_failure: '+feedback(result)))
+    return verdicts
+
+
 def task_verified_reward(completions, task_spec, **kwargs):
     if len(completions)!=len(task_spec): raise ValueError('Task/reward batch mismatch')
     verdicts=[verify(text,spec) for text,spec in zip(completions,task_spec)]
@@ -258,11 +281,13 @@ def grpo_verified_reward(completions, answer=None, task_spec=None, **kwargs):
     answers=answer if answer is not None else [None]*len(completions)
     specs=task_spec if task_spec is not None else [None]*len(completions)
     if not len(completions)==len(answers)==len(specs): raise ValueError('Task/reward batch mismatch')
+    parsed=[_spec(raw) for raw in specs]
+    with_spec=[i for i,spec in enumerate(parsed) if spec]
+    batch=dict(zip(with_spec,verify_many([completions[i] for i in with_spec],[parsed[i] for i in with_spec])))
     rewards=[]
-    for completion,reference,raw in zip(completions,answers,specs):
-        spec=_spec(raw)
+    for index,(completion,reference,spec) in enumerate(zip(completions,answers,parsed)):
         if spec:
-            verdict=verify(completion,spec)
+            verdict=batch[index]
             if not verdict.verified: raise RuntimeError('A task verifier is unavailable: '+verdict.reason)
             rewards.append(float(verdict.correct)); continue
         if reference is None: raise ValueError('Row has neither task_spec nor reference answer')

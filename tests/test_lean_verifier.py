@@ -41,3 +41,20 @@ def test_lean_checks_real_proofs_and_rejects_cheats():
     assert wrong.verified and not wrong.correct and 'proof line' in wrong.reason
     for cheat in ('sorry', 'native_decide', 'exact sorryAx _ false', 'omega\n#exit'):
         assert not verify(f'```lean\n{cheat}\n```', spec).correct
+
+
+@pytest.mark.skipif(not lean_available(), reason='Lean/Mathlib or bubblewrap unavailable')
+def test_batched_checks_match_single_checks():
+    from lean_verifier import check_proof, check_proofs
+    other = 'theorem two : (2 : ℕ) + 2 = 4 := sorry'
+    statements = [STATEMENT, STATEMENT, other, STATEMENT, STATEMENT, other, STATEMENT]
+    proofs = ['subst h₀\nomega', 'norm_num', 'norm_num', 'sorry', 'omega\n/-', 'rfl', 'exact absurd h₁ (by omega)']
+    batched = check_proofs(statements, proofs)
+    single = [check_proof(s, p) for s, p in zip(statements, proofs)]
+    assert [r['correct'] for r in batched] == [r['correct'] for r in single] == [
+        True, False, True, False, False, True, False]
+    assert batched[1]['reason'] == 'lean_error' and 'proof line' in lean_verifier.feedback(batched[1])
+    from verified_rewards import grpo_verified_reward
+    spec = {'kind': 'lean', 'statement': STATEMENT}
+    assert grpo_verified_reward(['```lean\nomega\n```', 'x', '```lean\nsubst h₀\nomega\n```'],
+                                task_spec=[spec, spec, spec]) == [1.0, 0.0, 1.0]

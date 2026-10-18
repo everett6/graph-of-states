@@ -134,6 +134,72 @@ def check_proof(formal_statement, proof, opens=DEFAULT_OPENS, timeout=120):
     return {'correct': True, 'reason': 'lean_checked', 'messages': output, 'seconds': seconds, 'offset': offset}
 
 
+# Text that can change the environment for later theorems in a shared file (new commands, attributes,
+# an unterminated comment). Failures after such a proof are rechecked alone.
+LEAKY = re.compile(r'^\s*(?:@\[|attribute\b|instance\b|namespace\b|section\b|end\b|open\b|universe\b|variable\b'
+                   r'|theorem\b|lemma\b|def\b|abbrev\b|example\b|notation\b|infix|prefix|postfix|local\b|scoped\b'
+                   r'|set_option\b|#)|/-', re.M)
+CHUNK = re.compile(r'^/work/Check\.lean:(\d+):\d+: ', re.M)
+
+
+def _batch_source(statements, proofs, opens, preamble):
+    """One Lean file with theorem __gos_target_i per candidate; returns (source, [(first, last) line])."""
+    head = f'import Mathlib\n{opens}\n\n' + (preamble + '\n\n' if preamble else '')
+    parts, ranges, line = [head], [], head.count('\n') + 1
+    for index, (statement, proof) in enumerate(zip(statements, proofs)):
+        _, body, _ = statement_body(statement)
+        tactics = '\n'.join('  ' + item for item in proof.strip('\n').splitlines()) or '  skip'
+        block = f'theorem {TARGET}_{index} {body} := by\n{tactics}\n\n#print axioms {TARGET}_{index}\n\n'
+        offset = line + body.count('\n')  # file line of ':= by'; tactic line k is file line offset + k
+        ranges.append((line, line + block.count('\n') - 1, offset))
+        parts.append(block)
+        line += block.count('\n')
+    return ''.join(parts), ranges
+
+
+def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120):
+    """check_proof for many candidates with one Mathlib import per group (import dominates the cost).
+
+    Same verdicts as checking each alone: a batch pass is only a candidate and is confirmed by
+    check_proof in its own file; failures are rechecked alone when another proof could have
+    interfered (environment-changing text, errors outside every theorem, timeout, missing audit)."""
+    if isinstance(statements, str):
+        statements = [statements] * len(proofs)
+    results = [None] * len(proofs)
+    groups = {}
+    for index, (statement, proof) in enumerate(zip(statements, proofs)):
+        banned = BANNED.search(proof)
+        if banned:
+            results[index] = {'correct': False, 'reason': f'banned construct: {banned.group(0)}', 'messages': '',
+                              'seconds': 0.0}
+        else:
+            groups.setdefault(statement_body(statement)[2], []).append(index)
+    for preamble, indices in groups.items():
+        if len(indices) == 1:
+            results[indices[0]] = check_proof(statements[indices[0]], proofs[indices[0]], opens, timeout)
+            continue
+        start = time.perf_counter()
+        source, ranges = _batch_source([statements[i] for i in indices], [proofs[i] for i in indices], opens, preamble)
+        code, output = run_lean(source, timeout + 15 * len(indices))
+        seconds = (time.perf_counter() - start) / len(indices)
+        marks = list(CHUNK.finditer(output))
+        chunks = [(int(m.group(1)), output[m.start():(nxt.start() if nxt else len(output))])
+                  for m, nxt in zip(marks, marks[1:] + [None])]
+        stray = [text for number, text in chunks if ': error' in text.split('\n', 1)[0]
+                 and not any(first <= number <= last for first, last, _ in ranges)]
+        trusted = code != -1 and not stray
+        for position, (index, (first, last, offset)) in enumerate(zip(indices, ranges)):
+            mine = [text for number, text in chunks if first <= number <= last]
+            errors = [text for text in mine if ': error' in text.split('\n', 1)[0]]
+            clean_before = not any(LEAKY.search(proofs[i]) for i in indices[:position])
+            if errors and trusted and clean_before:
+                results[index] = {'correct': False, 'reason': 'lean_error', 'messages': ''.join(mine),
+                                  'seconds': seconds, 'offset': offset}
+            else:  # candidate pass, or a verdict another proof may have affected: decide it alone
+                results[index] = check_proof(statements[index], proofs[index], opens, timeout)
+    return results
+
+
 def feedback(result, limit=1500):
     """Compact error text for a repair turn: error lines with their following context."""
     if result['correct']:

@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 
 from eval_search import extracted_answer, read_jsonl, summarize
-from verified_rewards import verify
+from verified_rewards import verify, verify_many
 
 REPAIR_PROMPT = ('Your solution failed the provided unit tests.\nVerifier feedback: {feedback}\n'
                  'Find the bug and return the complete corrected solution in one ```python block.')
@@ -23,8 +23,10 @@ def evaluate_row(row, generate, n, repair=True, verifier=verify):
     spec = json.loads(row['task_spec']) if isinstance(row['task_spec'], str) else row['task_spec']
     start = time.perf_counter()
     samples = []
-    for text, tokens in generate(messages, n, True):
-        verdict = verifier(text, spec)
+    outputs = generate(messages, n, True)
+    texts = [text for text, _ in outputs]
+    verdicts = verify_many(texts, [spec] * len(texts)) if verifier is verify else [verifier(text, spec) for text in texts]
+    for (text, tokens), verdict in zip(outputs, verdicts):
         if not verdict.verified:
             raise RuntimeError(f"Verifier unavailable for {row['id']}: {verdict.reason}")
         samples.append({'text': text, 'tokens': tokens, 'correct': verdict.correct, 'reason': verdict.reason,
