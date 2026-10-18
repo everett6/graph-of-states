@@ -1,0 +1,41 @@
+{
+  "description": "LiveCodeBench v1-v4 functional (LeetCode) problems released before 2025, for code RL/RFT. Public plus private tests (up to 64 KB of cases per problem, private pickles decoded with no globals). Disjoint by date from the held-out LCB rows (released after 2025-01-31); screen with --against.",
+  "sources": [
+    {
+      "name": "lcb_train_test",
+      "adapter": "livecodebench",
+      "path": "data/train/lcb/lcb_test.jsonl",
+      "released_before": "2025-01-01",
+      "private_tests": true,
+      "max_test_bytes": 65536,
+      "cutoff_status": "pre_cutoff"
+    },
+    {
+      "name": "lcb_train_test2",
+      "adapter": "livecodebench",
+      "path": "data/train/lcb/lcb_test2.jsonl",
+      "released_before": "2025-01-01",
+      "private_tests": true,
+      "max_test_bytes": 65536,
+      "cutoff_status": "pre_cutoff"
+    },
+    {
+      "name": "lcb_train_test3",
+      "adapter": "livecodebench",
+      "path": "data/train/lcb/lcb_test3.jsonl",
+      "released_before": "2025-01-01",
+      "private_tests": true,
+      "max_test_bytes": 65536,
+      "cutoff_status": "pre_cutoff"
+    },
+    {
+      "name": "lcb_train_test4",
+      "adapter": "livecodebench",
+      "path": "data/train/lcb/lcb_test4.jsonl",
+      "released_before": "2025-01-01",
+      "private_tests": true,
+      "max_test_bytes": 65536,
+      "cutoff_status": "pre_cutoff"
+    }
+  ]
+}

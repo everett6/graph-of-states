@@ -5,11 +5,15 @@ Each output row has `prompt`, `answer`, `source`, `group`, `contamination` and a
 LiveCodeBench private tests are pickled and are never loaded; only public JSON tests are used.
 """
 import argparse
+import base64
 from collections import Counter
 from datetime import date
 import hashlib
+import io
 import json
 from pathlib import Path
+import pickle
+import zlib
 
 from split_audit import canonical, shingles
 from symbolic_math import Unsupported, parse_answer
@@ -78,14 +82,40 @@ def leetcode_tests(func_name, cases):
             "    assert _got == _expected, f'input {_args_text!r}: expected {_expected!r}, got {_got!r}'[:400]\n")
 
 
+class _NoGlobals(pickle.Unpickler):
+    def find_class(self, module, name):
+        raise pickle.UnpicklingError(f'refusing global {module}.{name}')
+
+
+def private_cases(encoded):
+    """LiveCodeBench private tests: base64(zlib(pickle(json str))). Unpickled with no globals allowed,
+    so only plain strings/containers can be built (no code runs)."""
+    text = _NoGlobals(io.BytesIO(zlib.decompress(base64.b64decode(encoded)))).load()
+    if not isinstance(text, str):
+        raise ValueError('Unexpected private test payload')
+    return json.loads(text)
+
+
 def livecodebench_rows(source, stats):
-    after = date.fromisoformat(source['released_after'])
+    """Functional (LeetCode) problems in a release-date window. Evaluation uses public tests only;
+    training sources may add private tests (private_tests: true) up to max_test_bytes of cases."""
+    after = date.fromisoformat(source.get('released_after', '1900-01-01'))
+    before = date.fromisoformat(source.get('released_before', '9999-12-31'))
     for row in read_rows(source['path']):
         released = date.fromisoformat(str(row['contest_date'])[:10])
         cases = json.loads(row['public_test_cases'])
-        if released <= after or not cases or any(case.get('testtype') != 'functional' for case in cases):
-            stats[f"skipped_{source['name']}"] += 1  # pre-cutoff, or stdin/stdout needing another harness
+        if not after < released < before or not cases or any(case.get('testtype') != 'functional' for case in cases):
+            stats[f"skipped_{source['name']}"] += 1  # outside the window, or stdin/stdout needing another harness
             continue
+        public = len(cases)
+        if source.get('private_tests'):
+            budget = source.get('max_test_bytes', 65536) - len(json.dumps(cases))
+            for case in private_cases(row['private_test_cases']):
+                size = len(json.dumps(case))
+                if case.get('testtype') != 'functional' or size > budget:
+                    continue
+                cases.append(case)
+                budget -= size
         func = json.loads(row.get('metadata') or '{}').get('func_name')
         if not func or not func.isidentifier():
             raise ValueError('Functional problem without a valid func_name')
@@ -95,7 +125,8 @@ def livecodebench_rows(source, stats):
         yield {'id': f"{source['name']}/{row['question_id']}", 'prompt': prompt, 'answer': '',
                'tests': tests, 'task_spec': {'kind': 'coding', 'verifier': 'docker', 'tests': tests},
                'meta': {'contest_date': str(released), 'difficulty': row.get('difficulty'),
-                        'platform': row.get('platform'), 'public_tests': len(cases), 'private_tests_used': False}}
+                        'platform': row.get('platform'), 'public_tests': public,
+                        'private_tests_used': len(cases) - public}}
 
 
 ADAPTERS = {'math': math_rows, 'math_solution': math_solution_rows, 'livecodebench': livecodebench_rows}

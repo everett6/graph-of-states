@@ -58,3 +58,16 @@ def test_batched_checks_match_single_checks():
     spec = {'kind': 'lean', 'statement': STATEMENT}
     assert grpo_verified_reward(['```lean\nomega\n```', 'x', '```lean\nsubst h₀\nomega\n```'],
                                 task_spec=[spec, spec, spec]) == [1.0, 0.0, 1.0]
+
+
+def test_workbook_proof_split():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
+    from build_lean_train import split_proof
+    full = ('import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 400000\n\nopen BigOperators Real\n\n'
+            '/- Show $b = 3$. -/\ntheorem wb_1 (a b : ℕ) (h₀ : a = 2)\n  (h₁ : a + b = 5) : b = 3 := by\n'
+            '  /- subtract -/\n  subst h₀\n  omega\n')
+    statement, opens, proof, informal = split_proof(full)
+    assert statement == 'theorem wb_1 (a b : ℕ) (h₀ : a = 2)\n  (h₁ : a + b = 5) : b = 3 := sorry'
+    assert (opens, proof, informal) == ('open BigOperators Real', '/- subtract -/\nsubst h₀\nomega', 'Show $b = 3$.')

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from build_eval_set import build
 from verified_rewards import verify
 
@@ -40,4 +42,34 @@ def test_build_filters_screens_and_emits_verifiable_specs(tmp_path):
     namespace = {}
     exec('class Solution:\n    def f(self, nums, k):\n        return sum(nums) - k + 1', namespace)
     exec(spec['tests'], namespace)  # trusted test fixture, mirrors the Docker runner's namespace
-    assert rows[2]['meta']['private_tests_used'] is False
+    assert rows[2]['meta']['private_tests_used'] == 0
+
+
+def test_private_tests_decode_safely_and_respect_window(tmp_path):
+    import base64
+    import pickle
+    import zlib
+    from build_eval_set import livecodebench_rows, private_cases
+
+    def encode(value):
+        return base64.b64encode(zlib.compress(pickle.dumps(value))).decode()
+    hidden = [{'input': f'[{i}]\n0', 'output': str(i), 'testtype': 'functional'} for i in range(5)]
+    assert private_cases(encode(json.dumps(hidden))) == hidden
+
+    class Evil:
+        def __reduce__(self):
+            return (print, ('pwned',))
+    with pytest.raises(pickle.UnpicklingError):
+        private_cases(encode(Evil()))
+    case = {'input': '[1]\n0', 'output': '1', 'testtype': 'functional'}
+    rows = [{'question_id': q, 'question_content': 'Sum.', 'starter_code': 'class Solution:', 'contest_date': d,
+             'public_test_cases': json.dumps([case]), 'private_test_cases': encode(json.dumps(hidden)),
+             'metadata': json.dumps({'func_name': 'f'})} for q, d in (('in', '2024-06-01'), ('late', '2025-02-01'))]
+    path = write_jsonl(tmp_path / 'lcb.jsonl', rows)
+    from collections import Counter
+    stats = Counter()
+    source = {'name': 't', 'path': path, 'released_before': '2025-01-01', 'private_tests': True,
+              'max_test_bytes': len(json.dumps([case])) + 3 * len(json.dumps(hidden[0])) + 3}
+    built = list(livecodebench_rows(source, stats))
+    assert [row['id'] for row in built] == ['t/in'] and stats['skipped_t'] == 1
+    assert built[0]['meta'] == {**built[0]['meta'], 'public_tests': 1, 'private_tests_used': 3}

@@ -157,12 +157,14 @@ def _batch_source(statements, proofs, opens, preamble):
     return ''.join(parts), ranges
 
 
-def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120):
+def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120, confirm=True):
     """check_proof for many candidates with one Mathlib import per group (import dominates the cost).
 
     Same verdicts as checking each alone: a batch pass is only a candidate and is confirmed by
     check_proof in its own file; failures are rechecked alone when another proof could have
-    interfered (environment-changing text, errors outside every theorem, timeout, missing audit)."""
+    interfered (environment-changing text, errors outside every theorem, timeout, missing audit).
+    confirm=False accepts a batch pass with a clean per-theorem axiom audit and no errors: only for
+    filtering non-adversarial training data, never for scoring a model."""
     if isinstance(statements, str):
         statements = [statements] * len(proofs)
     results = [None] * len(proofs)
@@ -194,6 +196,13 @@ def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120):
             clean_before = not any(LEAKY.search(proofs[i]) for i in indices[:position])
             if errors and trusted and clean_before:
                 results[index] = {'correct': False, 'reason': 'lean_error', 'messages': ''.join(mine),
+                                  'seconds': seconds, 'offset': offset}
+                continue
+            audit = re.search(rf"'{TARGET}_{position}' (?:depends on axioms: \[(.*?)\]|does not depend on any axioms)",
+                              output, re.S)
+            axioms = {name.strip() for name in ((audit.group(1) or '') if audit else '').split(',') if name.strip()}
+            if not confirm and trusted and not errors and audit and axioms <= ALLOWED_AXIOMS:
+                results[index] = {'correct': True, 'reason': 'lean_checked_batch', 'messages': '',
                                   'seconds': seconds, 'offset': offset}
             else:  # candidate pass, or a verdict another proof may have affected: decide it alone
                 results[index] = check_proof(statements[index], proofs[index], opens, timeout)
