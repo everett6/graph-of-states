@@ -5,7 +5,11 @@ difference in pass@1 (fraction of correct samples) with a seeded paired bootstra
 two-sided sign test on rows where the two variants disagree. Reported overall and per cutoff group.
 
     .venv-training/bin/python scripts/compare_heldout.py runs/pilot-heldout-v1 --baseline frozen-d4
+
+--scaling instead compares each recurrent variant's pass counts against its own fewest-pass evaluation
+(same weights, more test-time passes): does accuracy rise with passes, including beyond the trained range?
 """
+import re
 import argparse
 import json
 from math import comb
@@ -68,20 +72,50 @@ def compare(variants, baseline, resamples=10000):
     return table
 
 
+def scaling(variants, resamples=10000):
+    """{variant: {'passes-N': {group: paired}}} against the variant's fewest passes."""
+    families = {}
+    for name in variants:
+        match = re.fullmatch(r'(.+)/passes-(\d+)', name)
+        if match:
+            families.setdefault(match.group(1), []).append(int(match.group(2)))
+    table = {}
+    for family, counts in sorted(families.items()):
+        counts.sort()
+        if len(counts) > 1:
+            subset = {f'passes-{n}': variants[f'{family}/passes-{n}'] for n in counts}
+            table[family] = compare(subset, f'passes-{counts[0]}', resamples)
+    return table
+
+
+def show(name, groups):
+    for group, result in groups.items():
+        if result:
+            print(f"{name:40s} {group:22s} n={result['rows']:4d} {result['mean_a']:.3f} -> {result['mean_b']:.3f} "
+                  f"diff {result['diff']:+.3f} [{result['ci95'][0]:+.3f}, {result['ci95'][1]:+.3f}] "
+                  f"W/L {result['wins']}/{result['losses']} p={result['sign_test_p']:.3g}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run')
-    parser.add_argument('--baseline', required=True, help='Variant directory name to compare against')
+    parser.add_argument('--baseline', help='Variant directory name to compare against')
+    parser.add_argument('--scaling', action='store_true', help='Pass-count scaling within each recurrent variant')
     parser.add_argument('--resamples', type=int, default=10000)
     args = parser.parse_args()
-    table = compare(load(args.run), args.baseline, args.resamples)
-    for name, groups in table.items():
-        for group, result in groups.items():
-            if result:
-                print(f"{name:32s} {group:22s} n={result['rows']:4d} {result['mean_a']:.3f} -> {result['mean_b']:.3f} "
-                      f"diff {result['diff']:+.3f} [{result['ci95'][0]:+.3f}, {result['ci95'][1]:+.3f}] "
-                      f"W/L {result['wins']}/{result['losses']} p={result['sign_test_p']:.3g}")
-    out = Path(args.run) / f'paired_vs_{args.baseline}.json'
+    if args.scaling == bool(args.baseline):
+        parser.error('Give exactly one of --baseline or --scaling')
+    if args.scaling:
+        table = scaling(load(args.run), args.resamples)
+        for family, rows in table.items():
+            for name, groups in rows.items():
+                show(f'{family}/{name}', groups)
+        out = Path(args.run) / 'pass_scaling.json'
+    else:
+        table = compare(load(args.run), args.baseline, args.resamples)
+        for name, groups in table.items():
+            show(name, groups)
+        out = Path(args.run) / f"paired_vs_{args.baseline.replace('/', '_')}.json"
     out.write_text(json.dumps(table, indent=2) + '\n')
     print(f'wrote {out}')
 
