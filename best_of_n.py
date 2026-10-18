@@ -44,6 +44,17 @@ def evaluate_row(row, generate, n, repair=True, verifier=verify):
     return record
 
 
+def cap_per_source(rows, cap):
+    """First `cap` rows of each source in file order (never chosen by outcomes)."""
+    counts = {}
+    kept = []
+    for row in rows:
+        counts[row['source']] = counts.get(row['source'], 0) + 1
+        if counts[row['source']] <= cap:
+            kept.append(row)
+    return kept
+
+
 def run(rows, generate, n, ks, output, repair=True, verifier=verify):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -116,6 +127,8 @@ def main():
     parser.add_argument('--no-repair', action='store_true')
     parser.add_argument('--sources', help='Comma-separated source names to keep')
     parser.add_argument('--limit', type=int)
+    parser.add_argument('--per-source', type=int, help='Keep the first N rows of each source (file order)')
+    parser.add_argument('--context', type=int, default=4096, help='Prompt plus generation token limit')
     parser.add_argument('--seed', type=int, default=17)
     args = parser.parse_args()
     ks = [int(k) for k in args.ks.split(',')]
@@ -138,8 +151,10 @@ def main():
     if args.sources:
         keep = set(args.sources.split(','))
         rows = [row for row in rows if row['source'] in keep]
+    rows = cap_per_source(rows, args.per_source) if args.per_source else rows
     rows = rows[:args.limit] if args.limit else rows
-    generate = hf_generator(model, tokenizer, args.max_new_tokens, args.temperature, args.batch, args.thinking)
+    generate = hf_generator(model, tokenizer, args.max_new_tokens, args.temperature, args.batch, args.thinking,
+                            args.context)
     summary = run(rows, generate, args.n, ks, args.output, not args.no_repair)
     summary['settings'] = vars(args)
     (Path(args.output) / 'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n')

@@ -130,3 +130,9 @@ def test_generator_splits_batch_on_cuda_oom():
     model = Model()
     results = hf_generator(model, Tokenizer(), 4, 0.7, 4)([{'role': 'user', 'content': 'q'}], 3, True)
     assert results == [('7 1', 2)] * 3 and model.sizes == [3, 1, 2, 1, 1]
+
+
+def test_cap_per_source_keeps_file_order():
+    from best_of_n import cap_per_source
+    rows = [{'id': i, 'source': 'ab'[i % 2]} for i in range(7)]
+    assert [r['id'] for r in cap_per_source(rows, 2)] == [0, 1, 2, 3]
