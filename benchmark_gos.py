@@ -194,7 +194,7 @@ def heldout_evaluation(model,tokenizer,config,train,output):
     k=config.get('heldout_samples',4);ks=[x for x in (1,2,4,8,16) if x<=k]
     seed_all(config['seed']);model.eval()
     generate=hf_generator(model,tokenizer,config.get('heldout_max_new_tokens',1024),config.get('heldout_temperature',0.7),
-        config.get('heldout_batch',4),context=config.get('heldout_context',4096))
+        config.get('heldout_batch',4),thinking=config.get('heldout_thinking',False),context=config.get('heldout_context',4096))
     records=[evaluate_row(row,generate,k,config.get('heldout_repair',True)) for row in rows]
     Path(output,'heldout_records.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records))
     return summarize(records,ks)

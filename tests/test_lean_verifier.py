@@ -78,3 +78,18 @@ def test_format_control_for_lean_ignores_correctness():
     spec = {'kind': 'lean', 'statement': STATEMENT}
     assert format_only_reward(['```lean\nnorm_num\n```', '```lean\nsorry\n```', 'no block'],
                               task_spec=[spec] * 3) == [1.0, 0.0, 0.0]
+
+
+@pytest.mark.skipif(not lean_available(), reason='Lean/Mathlib or bubblewrap unavailable')
+def test_best_of_n_scores_lean_rows_in_one_batch():
+    import json
+    from best_of_n import evaluate_row
+    row = {'id': 'toy', 'source': 'minif2f_test', 'cutoff_status': 'pre_cutoff', 'prompt': 'Prove it.',
+           'task_spec': json.dumps({'kind': 'lean', 'statement': STATEMENT})}
+    texts = ['```lean\nsubst h₀\nomega\n```', '```lean\nnorm_num\n```', '```lean\nsorry\n```', 'no proof']
+
+    def generate(messages, count, sample):
+        return [(text, 5) for text in texts[:count]]
+    record = evaluate_row(row, generate, 4, repair=False)
+    assert [s['correct'] for s in record['samples']] == [True, False, False, False]
+    assert record['kind'] == 'lean' and 'proof line' in record['samples'][1]['reason']
