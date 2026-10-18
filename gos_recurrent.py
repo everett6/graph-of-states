@@ -237,11 +237,12 @@ def sample_passes(seed, step, spec):
 def pass_trace(model, ids):
     """Relative state change of each extra pass (||s_r - s_{r-1}|| / ||s_{r-1}||) on one forward.
     Shrinking values mean the block converges toward a fixed point; growing ones mean it diverges."""
-    adapter = text_model(model).recurrence
+    decoder = text_model(model)  # decoder only: no [tokens, vocab] logits
+    adapter = decoder.recurrence
     adapter.trace = []
     try:
         with torch.no_grad():
-            model(input_ids=ids, use_cache=False)
+            decoder(input_ids=ids, use_cache=False)
         return list(adapter.trace)
     finally:
         adapter.trace = None

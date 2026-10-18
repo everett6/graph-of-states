@@ -202,3 +202,9 @@ def test_pass_trace_reports_each_extra_pass():
     trace = pass_trace(model, ids)
     assert len(trace) == 3 and all(value > 0 for value in trace)
     assert text_model(model).recurrence.trace is None
+
+
+def test_pass_trace_through_peft_wrapper():
+    model = lora_model(3)
+    trace = pass_trace(model, torch.randint(3, 48, (1, 5)))
+    assert len(trace) == 2 and all(value > 0 for value in trace)

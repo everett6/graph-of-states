@@ -207,7 +207,14 @@ def evaluate_split(model,tokenizer,config,variant,validation,evaluation,train,ou
     results={str(cache):[generate_measured(model,tokenizer,r,config['max_new_tokens'],cache) for r in evaluation] for cache in (False,True)}
     heldout=heldout_evaluation(model,tokenizer,config,train,output) if config.get('heldout_tasks') else None
     accuracy={cache:sum(x['verdict']['correct'] for x in items)/len(items) for cache,items in results.items()}
-    return {'validation_nll':val,'test_outputs':results,'test_accuracy':accuracy,'heldout':heldout}
+    report={'validation_nll':val,'test_outputs':results,'test_accuracy':accuracy,'heldout':heldout}
+    if variant=='recurrent':
+        # Relative state change per extra pass, averaged over validation rows: shrinking = converging block.
+        from gos_recurrent import pass_trace
+        device=next(model.parameters()).device
+        traces=[pass_trace(model,torch.tensor([row['input_ids']],device=device)) for row in validation[:config.get('validation_rows',2)]]
+        report['pass_trace']=[sum(t[i] for t in traces)/len(traces) for i in range(len(traces[0]))] if traces else []
+    return report
 
 
 def worker(config,variant,depth,output,resume=False):
