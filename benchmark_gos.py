@@ -9,7 +9,7 @@ from experiment_support import configure,seed_all,trainable_count,save_checkpoin
 from gos_gemma import inner_lm,selected_logps
 from local_gemma import load_local_gemma
 from split_audit import grouped_split
-from verified_rewards import verify
+from verified_rewards import verify, verify_many
 
 
 def write(path,value): Path(path).write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
@@ -54,6 +54,8 @@ def make_dataset(config,tokenizer):
     for path in config.get('verified_tasks',[]):
         with open(path) as stream:
             tasks.extend(json.loads(line) for line in stream if line.strip())
+    plain=[task for task in tasks if 'messages' not in task]
+    checked=dict(zip(map(id,plain),verify_many([task['answer'] for task in plain],[task['task_spec'] for task in plain],confirm=False)))
     for task in tasks:
         if 'messages' in task:
             # Agent transcript: one row per assistant turn, conditioned on exactly the context the model saw
@@ -74,7 +76,7 @@ def make_dataset(config,tokenizer):
             continue
         prompt,answer,spec=task['prompt'],task['answer'],task['task_spec']
         if not isinstance(prompt,str) or not isinstance(answer,str): raise ValueError('Verified tasks require string prompt/answer')
-        verdict=verify(answer,spec)
+        verdict=checked[id(task)]  # batched: Lean references share one Mathlib import per group
         if not verdict.verified or not verdict.correct: raise ValueError('Task reference failed its own verifier')
         rendered=tokenizer.apply_chat_template([{'role':'user','content':prompt}],tokenize=False,
             add_generation_prompt=True,enable_thinking=False)

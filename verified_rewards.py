@@ -237,8 +237,9 @@ def lean_reward(completion, spec):
     return Verdict(True,result['correct'],'lean_checked' if result['correct'] else 'lean_failure: '+feedback(result))
 
 
-def verify_many(completions, specs):
-    """verify() for a batch; Lean tasks sharing `open` lines are checked with one Mathlib import."""
+def verify_many(completions, specs, confirm=True):
+    """verify() for a batch; Lean tasks sharing `open` lines are checked with one Mathlib import.
+    confirm=False is only for trusted dataset references (see lean_verifier.check_proofs)."""
     specs=[_spec(spec) for spec in specs]
     verdicts=[None]*len(completions)
     lean={}
@@ -250,7 +251,8 @@ def verify_many(completions, specs):
         for opens,indices in lean.items():
             try:
                 results=check_proofs([specs[i]['statement'] for i in indices],
-                                     [extract_proof(completions[i]) for i in indices],opens or DEFAULT_OPENS)
+                                     [extract_proof(completions[i]) for i in indices],opens or DEFAULT_OPENS,
+                                     confirm=confirm)
             except RuntimeError as error:
                 results=None; reason='verifier_unavailable: '+str(error)
             for i,result in zip(indices,results or [None]*len(indices)):

@@ -157,7 +157,7 @@ def _batch_source(statements, proofs, opens, preamble):
     return ''.join(parts), ranges
 
 
-def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120, confirm=True):
+def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120, confirm=True, batch=32):
     """check_proof for many candidates with one Mathlib import per group (import dominates the cost).
 
     Same verdicts as checking each alone: a batch pass is only a candidate and is confirmed by
@@ -176,7 +176,9 @@ def check_proofs(statements, proofs, opens=DEFAULT_OPENS, timeout=120, confirm=T
                               'seconds': 0.0}
         else:
             groups.setdefault(statement_body(statement)[2], []).append(index)
-    for preamble, indices in groups.items():
+    chunks_of = [(preamble, indices[i:i + batch]) for preamble, indices in groups.items()
+                 for i in range(0, len(indices), batch)]
+    for preamble, indices in chunks_of:
         if len(indices) == 1:
             results[indices[0]] = check_proof(statements[indices[0]], proofs[indices[0]], opens, timeout)
             continue
