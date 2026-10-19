@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from build_eval_set import MATH_SUFFIX, jaccard_flags  # noqa: E402
-from verified_rewards import verify_many  # noqa: E402
+from verified_rewards import verify  # noqa: E402
 
 THINK = re.compile(r'^\s*<think>\n?(.*?)\n?</think>\s*(.*)$', re.S)
 
@@ -35,6 +35,16 @@ def to_gemma(generation):
     if not match or not match.group(1).strip() or not match.group(2).strip() or '<think>' in match.group(2):
         return None
     return f'<|channel>thought\n{match.group(1).strip()}<channel|>{match.group(2).strip()}'
+
+
+def accepted(row):
+    """Our verifier accepts the trace against the dataset answer (references it cannot parse, such as
+    multi-part answers with units, are dropped rather than trusted)."""
+    try:
+        verdict = verify(row['answer'], row['task_spec'])
+    except ValueError:
+        return False
+    return verdict.verified and verdict.correct
 
 
 def candidates(rows):
@@ -87,8 +97,7 @@ def main():
     jaccard_flags(kept, against, args.threshold)
     screened = [row for row in kept if not row.pop('contamination')['flagged']]
     stats['dropped_near_duplicate'] = len(kept) - len(screened)
-    verdicts = verify_many([row['answer'] for row in screened], [row['task_spec'] for row in screened])
-    final = [row for row, verdict in zip(screened, verdicts) if verdict.verified and verdict.correct]
+    final = [row for row in screened if accepted(row)]
     stats['dropped_our_verifier'] = len(screened) - len(final)
     final = final[:args.limit] if args.limit else final
     stats['kept'] = len(final)
