@@ -84,8 +84,9 @@ def make_dataset(config,tokenizer):
         if not isinstance(prompt,str) or not isinstance(answer,str): raise ValueError('Verified tasks require string prompt/answer')
         verdict=checked[id(task)]  # batched: Lean references share one Mathlib import per group
         if not verdict.verified or not verdict.correct: raise ValueError('Task reference failed its own verifier')
+        # thinking rows (distilled reasoning in Gemma's thought channel) are conditioned on the thinking-on prompt.
         rendered=tokenizer.apply_chat_template([{'role':'user','content':prompt}],tokenize=False,
-            add_generation_prompt=True,enable_thinking=False)
+            add_generation_prompt=True,enable_thinking=bool(task.get('thinking',False)))
         prefix=tokenizer.encode(rendered,add_special_tokens=False)
         suffix=tokenizer.encode(answer,add_special_tokens=False)+[end]
         if len(prefix)+len(suffix)>config['sequence_length']: raise ValueError('Verified reference exceeds sequence budget')

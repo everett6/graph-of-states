@@ -1,0 +1,96 @@
+{
+  "format_version": 1,
+  "base_path": "/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2",
+  "seed": 17,
+  "steps": 400,
+  "sequence_length": 3072,
+  "width": 128,
+  "learning_rate": 0.0002,
+  "eval_per_kind": 10,
+  "max_new_tokens": 512,
+  "profile_new_tokens": 4,
+  "logit_chunk": 4,
+  "depths": [
+    4
+  ],
+  "rows_per_source": 8,
+  "validation_rows": 8,
+  "local_data": [],
+  "near_duplicate_threshold": 0.8,
+  "measure_eviction_quality": false,
+  "cache_quality_tokens": 16,
+  "ablations": [],
+  "lora_targets": "all-linear",
+  "lora_rank": 8,
+  "lora_learning_rate": 0.0002,
+  "heldout_tasks": [
+    "data/eval/heldout-v2.jsonl"
+  ],
+  "heldout_samples": 2,
+  "heldout_max_new_tokens": 6144,
+  "heldout_temperature": 1.0,
+  "heldout_batch": 2,
+  "heldout_repair": true,
+  "synthetic_tasks": false,
+  "verified_tasks": [
+    "data/train/math-openr1-3072.jsonl"
+  ],
+  "heldout_per_source": {
+    "aime_2025": 15,
+    "hmmt_feb_2025": 15,
+    "aime_2026": 15,
+    "hmmt_feb_2026": 15,
+    "lcb_v6": 0,
+    "math500_l45": 0
+  },
+  "extra_variants": [
+    {
+      "name": "block-lora18-24-p1",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 1,
+          "eval_passes": [
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "recurrent-curriculum-m6",
+      "worker": "recurrent",
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "sampler": "poisson_lognormal",
+          "mean_passes": 6,
+          "sigma": 0.5,
+          "max_passes": 12,
+          "curriculum_steps": 300,
+          "curriculum": "1-sqrt",
+          "backprop_passes": 4,
+          "eval_passes": [
+            1,
+            6
+          ]
+        }
+      }
+    }
+  ],
+  "heldout_context": 8192,
+  "description": "Distillation round: SFT on OpenR1-Math-220k DeepSeek-R1 traces (Apache 2.0) converted to Gemma 4's thinking format (scripts/build_distill_math.py: verified, screened against every held-out set, <= 3072 tokens, <turn|> end token), evaluated with thinking on (6144 new tokens) on 60 post-cutoff contest problems x 2 samples with Google's sampling. Arms: frozen (thinking), block LoRA without re-passing, and the retrofitted-recurrence curriculum recipe at 1 and 6 passes. Questions: does distilled long reasoning beat the frozen model's own thinking, and does re-passing add to it? Compare with compare_heldout.py --baseline frozen-d4 and --scaling.",
+  "base_variants": [
+    "frozen"
+  ],
+  "sft_end_token": "turn",
+  "heldout_top_k": 64,
+  "heldout_top_p": 0.95,
+  "heldout_thinking": true
+}

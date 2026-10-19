@@ -5,9 +5,11 @@
 #      adapter only if it did not lose to frozen (SFT on human-written solutions collapsed the LoRA arm);
 #   3. self-distilled MATH-train SFT data (the frozen model's own verified solutions, <= 1024 tokens);
 #   4. the recurrent-depth round on it (configs/benchmark-depth-v2.json) with paired and pass-scaling reports;
-#   5. agentic GRPO (verified rewards) from the depth round's curriculum adapter and from its block-LoRA control,
+#   5. the distillation round (configs/benchmark-distill-v2.json: OpenR1 DeepSeek-R1 traces in Gemma's thinking
+#      format, evaluated with thinking on), if data/train/math-openr1-3072.jsonl was built;
+#   6. agentic GRPO (verified rewards) from the depth round's curriculum adapter and from its block-LoRA control,
 #      each scored on the same held-out rows, then paired (runs/rl-eval);
-#   6. the Lean/agent queue (scripts/gpu_queue_lean.sh).
+#   7. the Lean/agent queue (scripts/gpu_queue_lean.sh).
 # Stop it with: pkill -f gpu_queue_depth.sh
 cd "$(dirname "$0")/.."
 PY=.venv-training/bin/python
@@ -43,6 +45,16 @@ $PY scripts/compare_heldout.py runs/depth-v2 --baseline frozen-d4 > runs/queue/d
 log "depth compare exit $?"
 $PY scripts/compare_heldout.py runs/depth-v2 --scaling > runs/queue/depth-v2-scaling.log 2>&1
 log "depth scaling exit $?"
+if [ -s data/train/math-openr1-3072.jsonl ]; then
+  log "distill round start"
+  $PY benchmark_gos.py --config configs/benchmark-distill-v2.json --output runs/distill-v2 --resume > runs/queue/distill-v2.log 2>&1
+  log "distill round exit $?"
+  $PY scripts/compare_heldout.py runs/distill-v2 --baseline frozen-d4 > runs/queue/distill-v2-compare.log 2>&1
+  $PY scripts/compare_heldout.py runs/distill-v2 --scaling > runs/queue/distill-v2-scaling.log 2>&1
+  log "distill compare exit $?"
+else
+  log "distill round skipped (no data/train/math-openr1-3072.jsonl)"
+fi
 evalrl="--eval data/eval/heldout-v2.jsonl --base-path $GEMMA --sources aime_2025,hmmt_feb_2025,aime_2026,hmmt_feb_2026,lcb_v6,math500_l45
   --per-source 30 --n 2 --ks 1,2 --max-new-tokens 2048 --batch 2 --adapter-kind recurrent
   --temperature 1.0 --top-k 64 --top-p 0.95"

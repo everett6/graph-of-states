@@ -187,3 +187,20 @@ def test_json_overflow_is_not_a_verified_value():
     with pytest.raises(ValueError):strict_json('{"value":1e999}')
     with pytest.raises(ValueError):strict_json('{"value":-1e999}')
     assert not verify('{"value":1e999}',{'kind':'structured','expected':{'value':float('inf')}}).correct
+
+
+def test_thinking_rows_render_with_thinking_prompt(tmp_path):
+    import json
+    from benchmark_gos import make_dataset
+    from test_unified import tokenizer
+    rows=[{'prompt':'Return the number two','answer':'2','task_spec':{'kind':'math','expected':'2'},'thinking':True},
+          {'prompt':'Return the number three','answer':'3','task_spec':{'kind':'math','expected':'3'}}]
+    path=tmp_path/'tasks.jsonl';path.write_text(''.join(json.dumps(r)+'\n' for r in rows))
+    tok=tokenizer();seen={}
+    original=tok.apply_chat_template
+    def spy(messages,**kwargs):
+        seen[messages[0]['content']]=kwargs.get('enable_thinking')
+        return original(messages,**kwargs)
+    tok.apply_chat_template=spy
+    make_dataset({'seed':17,'sequence_length':128,'synthetic_tasks':False,'verified_tasks':[str(path)]},tok)
+    assert seen=={'Return the number two':True,'Return the number three':False}
