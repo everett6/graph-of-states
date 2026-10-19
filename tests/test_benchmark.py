@@ -162,6 +162,13 @@ def test_local_verified_benchmark_suite_and_manifest(tmp_path):
     rows,audit=make_dataset(config,tokenizer())
     assert len(rows)==1 and rows[0]['task_spec']==row['task_spec']
     assert audit['cross_split_pairs']==0
+    tok=tokenizer()
+    assert rows[0]['input_ids'][-1]==tok.eos_token_id  # legacy default
+    tok.add_special_tokens({'additional_special_tokens':['<turn|>']})
+    turn=tok.convert_tokens_to_ids('<turn|>')
+    rows,_=make_dataset(config|{'sft_end_token':'turn'},tok)
+    assert rows[0]['input_ids'][-1]==turn and rows[0]['labels'][-1]==turn  # the end token is supervised
+    with pytest.raises(ValueError):make_dataset(config|{'sft_end_token':'bos'},tok)
     row['answer']='3';path.write_text(json.dumps(row)+'\n')
     with pytest.raises(ValueError):make_dataset(config,tokenizer())
 

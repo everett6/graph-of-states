@@ -28,7 +28,7 @@
   ],
   "heldout_samples": 2,
   "heldout_max_new_tokens": 2048,
-  "heldout_temperature": 0.7,
+  "heldout_temperature": 1.0,
   "heldout_batch": 4,
   "heldout_repair": true,
   "synthetic_tasks": false,
@@ -119,8 +119,11 @@
     }
   ],
   "heldout_context": 4096,
-  "description": "Recurrent-depth round on self-distilled data. The pilot's LoRA arm, SFT on MATH-train's human-written solutions, fell from 52.8% to 15.2% held-out pass@1 (style collapse), so every arm here trains on the frozen model's own verified MATH-train solutions within 1024 tokens (scripts/self_distill.py). Question: does the retrofitted-recurrence recipe (arXiv 2511.07384: Poisson-lognormal pass counts, 1-sqrt curriculum of the mean over the first 75% of steps, backprop through the last 4 passes) beat uniform 1-4 passes and the parameter-matched block LoRA without recurrence, and does accuracy rise with test-time passes (1/4/8/12; beyond-training counts also with quarter-step damping, arXiv 2609.16665)? Paired on held-out v2 post-cutoff contest math, LCB v6 hidden tests and MATH-500 L4-5 at 2048 tokens. Compare with compare_heldout.py --baseline frozen-d4 and --scaling.",
+  "description": "Recurrent-depth round on self-distilled data. The pilot's LoRA arm, SFT on MATH-train's human-written solutions, fell from 52.8% to 15.2% held-out pass@1 (style collapse), so every arm here trains on the frozen model's own verified MATH-train solutions within 1024 tokens (scripts/self_distill.py). Question: does the retrofitted-recurrence recipe (arXiv 2511.07384: Poisson-lognormal pass counts, 1-sqrt curriculum of the mean over the first 75% of steps, backprop through the last 4 passes) beat uniform 1-4 passes and the parameter-matched block LoRA without recurrence, and does accuracy rise with test-time passes (1/4/8/12; beyond-training counts also with quarter-step damping, arXiv 2609.16665)? Paired on held-out v2 post-cutoff contest math, LCB v6 hidden tests and MATH-500 L4-5 at 2048 tokens. Compare with compare_heldout.py --baseline frozen-d4 and --scaling. Gemma 4 conventions (model card / tech report 2607.02770): SFT targets end with <turn|>, and held-out sampling uses the recommended temperature 1.0, top_p 0.95, top_k 64.",
   "base_variants": [
     "frozen"
-  ]
+  ],
+  "sft_end_token": "turn",
+  "heldout_top_k": 64,
+  "heldout_top_p": 0.95
 }

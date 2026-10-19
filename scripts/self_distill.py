@@ -51,7 +51,10 @@ def main():
     parser.add_argument('--sample', type=int, help='Seeded random subset of input rows')
     parser.add_argument('--n', type=int, default=1)
     parser.add_argument('--budget', type=int, required=True, help='Rendered prompt + answer + EOS token limit')
-    parser.add_argument('--temperature', type=float, default=0.7)
+    # Gemma 4's recommended sampling, so the kept solutions come from the distribution the model was tuned for.
+    parser.add_argument('--temperature', type=float, default=1.0)
+    parser.add_argument('--top-k', type=int, default=64)
+    parser.add_argument('--top-p', type=float, default=0.95)
     parser.add_argument('--seed', type=int, default=17)
     args = parser.parse_args()
     import torch
@@ -76,7 +79,8 @@ def main():
     log = Path(str(output) + '.attempts.jsonl')  # every attempted id, so resume skips failures too
     done = {json.loads(line)['id'] for line in log.read_text().splitlines() if line.strip()} if log.exists() else set()
     longest = max(1, args.budget - min((prefix_length(row['prompt']) for row in rows[:50]), default=0))
-    generate = hf_generator(model, tokenizer, longest, args.temperature, args.n, False, args.budget + 64)
+    generate = hf_generator(model, tokenizer, longest, args.temperature, args.n, False, args.budget + 64,
+                            args.top_k, args.top_p)
     kept = attempted = 0
     with output.open('a') as handle, log.open('a') as attempts:
         for identifier, result in distill(rows, generate, args.n, fits, done):

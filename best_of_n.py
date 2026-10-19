@@ -75,8 +75,19 @@ def run(rows, generate, n, ks, output, repair=True, verifier=verify):
     return summary
 
 
-def hf_generator(model, tokenizer, max_new_tokens, temperature, batch, thinking=False, context=4096):
+def stop_ids(model, tokenizer):
+    """Token ids that end a completion: the tokenizer's <eos>, every eos id in the generation config (Gemma 4
+    instruct turns end with <turn|>), and padding (shorter rows of a sampled batch are padded to the longest)."""
+    configured = getattr(getattr(model, 'generation_config', None), 'eos_token_id', None)
+    configured = configured if isinstance(configured, list) else [configured]
+    return {i for i in (tokenizer.eos_token_id, tokenizer.pad_token_id, *configured) if i is not None}
+
+
+def hf_generator(model, tokenizer, max_new_tokens, temperature, batch, thinking=False, context=4096, top_k=0, top_p=1.0):
+    """Sampling defaults (top_k=0, top_p=1) keep earlier runs comparable; Google recommends temperature 1.0,
+    top_p 0.95, top_k 64 for Gemma 4."""
     import torch
+    stops = stop_ids(model, tokenizer)
 
     @torch.no_grad()
     def generate(messages, count, sample):
@@ -86,7 +97,7 @@ def hf_generator(model, tokenizer, max_new_tokens, temperature, batch, thinking=
         budget = min(max_new_tokens, context - ids.shape[1])
         if budget < 1:
             raise ValueError('Prompt exceeds the context budget')
-        kwargs = dict(do_sample=True, temperature=temperature, top_k=0, top_p=1.0) if sample else dict(do_sample=False)
+        kwargs = dict(do_sample=True, temperature=temperature, top_k=top_k, top_p=top_p) if sample else dict(do_sample=False)
 
         def run(size):
             # Deep recurrent pass counts hold a KV cache per pass; on CUDA OOM, split the batch instead of failing.
@@ -104,7 +115,9 @@ def hf_generator(model, tokenizer, max_new_tokens, temperature, batch, thinking=
             output = run(min(batch, count - offset))
             for sequence in (row[ids.shape[1]:] for row in output):
                 tokens = sequence.tolist()
-                length = next((i + 1 for i, t in enumerate(tokens) if t == tokenizer.eos_token_id), len(tokens))
+                # Counted up to the first stop token; a stop at index i means i + 1 generated tokens (pads are never
+                # first, since padding only follows a stop).
+                length = next((i + 1 for i, t in enumerate(tokens) if t in stops), len(tokens))
                 results.append((tokenizer.decode(tokens[:length], skip_special_tokens=True), length))
         return results
     return generate
@@ -121,6 +134,8 @@ def main():
     parser.add_argument('--n', type=int, default=8)
     parser.add_argument('--ks', default='1,2,4,8')
     parser.add_argument('--temperature', type=float, default=0.7)
+    parser.add_argument('--top-k', type=int, default=0, help='0 = off (Gemma 4 recommends 64)')
+    parser.add_argument('--top-p', type=float, default=1.0, help='Gemma 4 recommends 0.95')
     parser.add_argument('--max-new-tokens', type=int, default=2048)
     parser.add_argument('--batch', type=int, default=4)
     parser.add_argument('--thinking', action='store_true')
@@ -154,7 +169,7 @@ def main():
     rows = cap_per_source(rows, args.per_source) if args.per_source else rows
     rows = rows[:args.limit] if args.limit else rows
     generate = hf_generator(model, tokenizer, args.max_new_tokens, args.temperature, args.batch, args.thinking,
-                            args.context)
+                            args.context, args.top_k, args.top_p)
     summary = run(rows, generate, args.n, ks, args.output, not args.no_repair)
     summary['settings'] = vars(args)
     (Path(args.output) / 'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n')

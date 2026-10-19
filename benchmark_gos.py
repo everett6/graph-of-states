@@ -34,6 +34,12 @@ def make_dataset(config,tokenizer):
                     'trace_id':row.get('trace_id',f'{source}:{count}')})
                 count+=1
                 if count>=config.get('rows_per_source',32): break
+    # Gemma 4 instruct turns end with <turn|>, and the tech report says fine-tuning must add the matching end token;
+    # 'eos' (the legacy default, kept for the pilot) teaches <eos> after an assistant answer instead.
+    mode=config.get('sft_end_token','eos')
+    if mode not in ('eos','turn'): raise ValueError("sft_end_token must be 'eos' or 'turn'")
+    end=tokenizer.eos_token_id if mode=='eos' else tokenizer.convert_tokens_to_ids('<turn|>')
+    if end is None or end==getattr(tokenizer,'unk_token_id',None): raise ValueError('Tokenizer has no <turn|> token')
     tasks=[]
     for index in range(90 if config.get('synthetic_tasks',True) else 0):
         a=index+2;b=index%11+3
@@ -68,7 +74,7 @@ def make_dataset(config,tokenizer):
                 if message['role']!='assistant': continue
                 context=tokenizer.apply_chat_template(messages[:turn],tokenize=False,add_generation_prompt=True,enable_thinking=False)
                 prefix=tokenizer.encode(context,add_special_tokens=False)
-                suffix=tokenizer.encode(message['content'],add_special_tokens=False)+[tokenizer.eos_token_id]
+                suffix=tokenizer.encode(message['content'],add_special_tokens=False)+[end]
                 if len(prefix)+len(suffix)>config['sequence_length']: break  # never truncate a turn's context
                 rows.append({'prompt':messages[0]['content'],'rendered':context,'input_ids':prefix+suffix,
                     'labels':[-100]*len(prefix)+suffix,'task_spec':spec,'source':task.get('source','agent_rft'),
@@ -81,7 +87,7 @@ def make_dataset(config,tokenizer):
         rendered=tokenizer.apply_chat_template([{'role':'user','content':prompt}],tokenize=False,
             add_generation_prompt=True,enable_thinking=False)
         prefix=tokenizer.encode(rendered,add_special_tokens=False)
-        suffix=tokenizer.encode(answer,add_special_tokens=False)+[tokenizer.eos_token_id]
+        suffix=tokenizer.encode(answer,add_special_tokens=False)+[end]
         if len(prefix)+len(suffix)>config['sequence_length']: raise ValueError('Verified reference exceeds sequence budget')
         ids=prefix+suffix
         rows.append({'prompt':prompt,'rendered':rendered,'input_ids':ids,
@@ -130,6 +136,7 @@ def loss_for(model,row,variant,chunk=8):
 
 
 def generate_measured(model,tokenizer,row,budget,cache):
+    from best_of_n import stop_ids
     ids=tokenizer(row['rendered'],return_tensors='pt',add_special_tokens=False).to(model.device)
     if ids.input_ids.shape[1]+budget>4096: raise ValueError('Prompt + completion exceeds 4096-token cap')
     sync();torch.cuda.reset_peak_memory_stats();start=time.perf_counter()
@@ -139,7 +146,7 @@ def generate_measured(model,tokenizer,row,budget,cache):
     completion=output[0,ids.input_ids.shape[1]:];text=tokenizer.decode(completion,skip_special_tokens=True)
     verdict=verify(text,row['task_spec'])
     return {'text':text,'tokens':len(completion),'seconds':elapsed,'tokens_per_second':len(completion)/elapsed,
-        'truncated':len(completion)==budget and int(completion[-1]) not in [tokenizer.eos_token_id],
+        'truncated':len(completion)==budget and int(completion[-1]) not in stop_ids(model,tokenizer),
         'peak_vram_bytes':torch.cuda.max_memory_allocated(),'peak_reserved_bytes':torch.cuda.max_memory_reserved(),
         'verdict':verdict.as_dict(),'kind':row['task_spec']['kind'],'prompt_sha256':digest(row['prompt'])}
 
@@ -194,7 +201,8 @@ def heldout_evaluation(model,tokenizer,config,train,output):
     k=config.get('heldout_samples',4);ks=[x for x in (1,2,4,8,16) if x<=k]
     seed_all(config['seed']);model.eval()
     generate=hf_generator(model,tokenizer,config.get('heldout_max_new_tokens',1024),config.get('heldout_temperature',0.7),
-        config.get('heldout_batch',4),thinking=config.get('heldout_thinking',False),context=config.get('heldout_context',4096))
+        config.get('heldout_batch',4),thinking=config.get('heldout_thinking',False),context=config.get('heldout_context',4096),
+        top_k=config.get('heldout_top_k',0),top_p=config.get('heldout_top_p',1.0))
     records=[evaluate_row(row,generate,k,config.get('heldout_repair',True)) for row in rows]
     Path(output,'heldout_records.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records))
     return summarize(records,ks)

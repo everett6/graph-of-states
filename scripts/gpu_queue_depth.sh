@@ -18,7 +18,8 @@ while pgrep -f gpu_queue.sh >/dev/null || pgrep -f measure_headroom.py >/dev/nul
 $PY scripts/compare_heldout.py runs/pilot-heldout-v1 --baseline frozen-d4 > runs/queue/pilot-compare.log 2>&1
 log "pilot compare exit $?"
 think="--eval data/eval/heldout-v2.jsonl --base-path $GEMMA --sources aime_2025,hmmt_feb_2025,aime_2026,hmmt_feb_2026
-  --per-source 10 --n 1 --ks 1 --thinking --max-new-tokens 16384 --context 18432 --batch 1"
+  --per-source 10 --n 1 --ks 1 --thinking --max-new-tokens 16384 --context 18432 --batch 1
+  --temperature 1.0 --top-k 64 --top-p 0.95"
 $PY best_of_n.py $think --output runs/thinking16k-frozen > runs/queue/thinking16k-frozen.log 2>&1
 log "thinking16k frozen exit $?"
 RECURRENT=runs/pilot-heldout-v1/recurrent-block18-24-p4/adapter
@@ -43,7 +44,8 @@ log "depth compare exit $?"
 $PY scripts/compare_heldout.py runs/depth-v2 --scaling > runs/queue/depth-v2-scaling.log 2>&1
 log "depth scaling exit $?"
 evalrl="--eval data/eval/heldout-v2.jsonl --base-path $GEMMA --sources aime_2025,hmmt_feb_2025,aime_2026,hmmt_feb_2026,lcb_v6,math500_l45
-  --per-source 30 --n 2 --ks 1,2 --max-new-tokens 2048 --batch 2 --adapter-kind recurrent"
+  --per-source 30 --n 2 --ks 1,2 --max-new-tokens 2048 --batch 2 --adapter-kind recurrent
+  --temperature 1.0 --top-k 64 --top-p 0.95"
 for arm in curriculum:recurrent-curriculum-m6:8 p1-control:block-lora18-24-p1:1; do
   IFS=: read name source passes <<< "$arm"
   config=configs/rl-recurrent-$name-agent.json

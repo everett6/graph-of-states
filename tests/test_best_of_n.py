@@ -136,3 +136,30 @@ def test_cap_per_source_keeps_file_order():
     from best_of_n import cap_per_source
     rows = [{'id': i, 'source': 'ab'[i % 2]} for i in range(7)]
     assert [r['id'] for r in cap_per_source(rows, 2)] == [0, 1, 2, 3]
+
+
+def test_generator_counts_tokens_to_first_stop_and_passes_sampling():
+    import torch
+    from types import SimpleNamespace
+    from best_of_n import hf_generator
+
+    class Tokenizer:
+        pad_token_id, eos_token_id = 0, 1
+        def apply_chat_template(self, messages, **kwargs):
+            return 'p'
+        def __call__(self, text, **kwargs):
+            return SimpleNamespace(input_ids=torch.tensor([[5, 6]]))
+        def decode(self, tokens, **kwargs):
+            return ' '.join(map(str, tokens))
+
+    class Model:
+        device, generation_config, seen = 'cpu', SimpleNamespace(eos_token_id=[1, 106]), {}
+        def generate(self, input_ids, **kwargs):
+            self.seen.update(kwargs)
+            # Row 0 ends its turn with <turn|> (106) and is padded; row 1 runs to the budget.
+            return torch.cat([input_ids, torch.tensor([[7, 106, 0, 0], [7, 8, 9, 10]])], 1)
+
+    model = Model()
+    results = hf_generator(model, Tokenizer(), 4, 1.0, 2, top_k=64, top_p=0.95)([{'role': 'user', 'content': 'q'}], 2, True)
+    assert [length for _, length in results] == [2, 4]
+    assert model.seen['top_k'] == 64 and model.seen['top_p'] == 0.95 and model.seen['temperature'] == 1.0
