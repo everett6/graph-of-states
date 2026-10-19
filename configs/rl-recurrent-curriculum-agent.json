@@ -20,7 +20,7 @@
   "agent_max_tools": 3,
   "seed": 17,
   "save_steps": 50,
-  "description": "Agentic GRPO continuing the depth round's curriculum adapter at its final pass distribution (Poisson-lognormal mean 6, max 12, backprop through the last 4). Run only if recurrent-curriculum-m6 beats block-lora18-24-p1 in runs/depth-v2.",
+  "description": "Agentic GRPO (verified rewards, Python tool) from the depth round's curriculum adapter at its final pass distribution (Poisson-lognormal mean 6, max 12, backprop through the last 4). Paired against configs/rl-recurrent-p1-control-agent.json (same RL from the parameter-matched block LoRA, no re-passing).",
   "variant": "recurrent",
   "recurrent": {
     "start": 18,

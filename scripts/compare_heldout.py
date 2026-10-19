@@ -18,10 +18,12 @@ import random
 
 
 def load(run):
-    """{variant: {row id: (pass@1, cutoff_status, source)}} for every heldout_records.jsonl under the run;
+    """{variant: {row id: (pass@1, cutoff_status, source)}} for every heldout_records.jsonl (benchmark) or
+    records.jsonl (best_of_n.py) under the run;
     recurrent variants have one per evaluated pass count (named '<variant>/passes-N')."""
     variants = {}
-    for path in sorted(Path(run).glob('**/heldout_records.jsonl')):
+    paths = [*Path(run).glob('**/heldout_records.jsonl'), *Path(run).glob('**/records.jsonl')]  # benchmark, best_of_n
+    for path in sorted(paths):
         rows = {}
         for line in path.read_text().splitlines():
             if line.strip():

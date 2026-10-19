@@ -40,3 +40,10 @@ def test_pass_scaling_within_each_variant(tmp_path):
     assert set(table) == {'deep'} and set(table['deep']) == {'passes-4', 'passes-12', 'passes-12-step0.25'}
     assert abs(table['deep']['passes-4']['all']['diff'] - 0.5) < 1e-9
     assert abs(table['deep']['passes-12']['all']['diff'] - 1.0) < 1e-9
+
+
+def test_loads_best_of_n_records(tmp_path):
+    write(tmp_path, 'control', [[False, False]] * 10)
+    (tmp_path / 'control' / 'heldout_records.jsonl').rename(tmp_path / 'control' / 'records.jsonl')
+    write(tmp_path, 'treated', [[True, False]] * 10)
+    assert abs(compare(load(tmp_path), 'control', resamples=200)['treated']['all']['diff'] - 0.5) < 1e-9
