@@ -237,6 +237,11 @@ def worker(config,variant,depth,output,resume=False):
     rows,audit=make_dataset(config,tokenizer);write(output/'split_audit.json',audit)
     write(output/'dataset_manifest.json',rows)
     train=[r for r in rows if r['split']=='train' and any(x!=-100 for x in r['labels'][1:])]
+    # Distillation configs can name the exact source(s) that receive gradients;
+    # other rows remain available for validation and the built-in smoke metrics.
+    if config.get('training_sources'):
+        allowed=set(config['training_sources'])
+        train=[r for r in train if r['source'] in allowed]
     validation=[r for r in rows if r['split']=='validation']
     evaluation=[r for r in rows if r['split']=='test' and 'task_spec' in r and r['source']!='agent_rft']
     # Balanced task coverage where present. No selection using model outcomes.

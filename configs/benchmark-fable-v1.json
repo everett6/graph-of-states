@@ -1,0 +1,125 @@
+{
+  "format_version": 1,
+  "base_path": "/home/everett/.cache/huggingface/hub/models--google--gemma-4-12B-it-qat-q4_0-unquantized/snapshots/b6ed86275a6a5735884e208bfed95b445a684ca2",
+  "seed": 17,
+  "steps": 400,
+  "sequence_length": 1024,
+  "width": 128,
+  "learning_rate": 0.0002,
+  "eval_per_kind": 10,
+  "max_new_tokens": 512,
+  "profile_new_tokens": 4,
+  "logit_chunk": 4,
+  "depths": [
+    4
+  ],
+  "rows_per_source": 1200,
+  "validation_rows": 8,
+  "local_data": [
+    "data/train/fable-5.1-v1-1200.jsonl"
+  ],
+  "near_duplicate_threshold": 0.8,
+  "measure_eviction_quality": false,
+  "cache_quality_tokens": 16,
+  "ablations": [],
+  "lora_targets": "all-linear",
+  "lora_rank": 8,
+  "lora_learning_rate": 0.0002,
+  "heldout_tasks": [
+    "data/eval/heldout-v2.jsonl"
+  ],
+  "heldout_samples": 1,
+  "heldout_max_new_tokens": 4096,
+  "heldout_temperature": 1.0,
+  "heldout_batch": 1,
+  "heldout_repair": true,
+  "synthetic_tasks": true,
+  "verified_tasks": [],
+  "heldout_per_source": {
+    "aime_2025": 15,
+    "hmmt_feb_2025": 15,
+    "aime_2026": 15,
+    "hmmt_feb_2026": 15,
+    "lcb_v6": 20,
+    "math500_l45": 30
+  },
+  "extra_variants": [
+    {
+      "name": "lora-all-linear-d4",
+      "worker": "lora",
+      "depth": 4
+    },
+    {
+      "name": "mlp-d4",
+      "worker": "mlp",
+      "depth": 4
+    },
+    {
+      "name": "gos-d4",
+      "worker": "gos",
+      "depth": 4
+    },
+    {
+      "name": "gos-deep-supervision-d4",
+      "worker": "gos",
+      "depth": 4,
+      "enhancements": {
+        "deep_supervision": true,
+        "thermal": false
+      }
+    },
+    {
+      "name": "recurrent-curriculum-m6",
+      "worker": "recurrent",
+      "depth": 4,
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "sampler": "poisson_lognormal",
+          "mean_passes": 6,
+          "sigma": 0.5,
+          "max_passes": 12,
+          "curriculum_steps": 300,
+          "curriculum": "1-sqrt",
+          "backprop_passes": 4,
+          "eval_passes": [
+            1,
+            6
+          ]
+        }
+      }
+    },
+    {
+      "name": "block-lora18-24-p1",
+      "worker": "recurrent",
+      "depth": 4,
+      "overrides": {
+        "recurrent": {
+          "start": 18,
+          "end": 24,
+          "rank": 64,
+          "lora_rank": 16,
+          "max_passes": 1,
+          "eval_passes": [
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "heldout_context": 6144,
+  "description": "Fable 5.1-only SFT distillation: train on a seeded uniform sample of 1,200 supervised token windows from the already Gemma-tokenized Fable full split. Training excludes built-in synthetic controls; they remain only for pipeline scoring. Compare frozen Gemma, all-linear LoRA, matched MLP, GoS depth 4, deep-supervised GoS, recurrent curriculum at 1/6 passes, and a matched block-LoRA control. Evaluate with Gemma thinking enabled on held-out post-cutoff AIME/HMMT/LiveCodeBench plus MATH-500. Fable windows were split by source conversation before windowing; held-out prompt overlap is audited by the harness.",
+  "base_variants": [
+    "frozen"
+  ],
+  "sft_end_token": "turn",
+  "heldout_top_k": 64,
+  "heldout_top_p": 0.95,
+  "training_sources": [
+    "fable"
+  ],
+  "heldout_thinking": true
+}
